@@ -1,0 +1,1281 @@
+{
+  "processes": {
+    "after_sale_calibration": {
+      "domain": "system",
+      "layer": 5,
+      "runtime": "nexis",
+      "pub": [],
+      "sub": []
+    },
+    "common_manager": {
+      "domain": "system",
+      "layer": 5,
+      "runtime": "nexis",
+      "pub": [],
+      "sub": [
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus"
+        },
+        {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed"
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": "neodrive.global.status.Chassis"
+        }
+      ]
+    },
+    "default": {
+      "domain": "system",
+      "layer": 3,
+      "runtime": "nexis",
+      "pub": [
+        {
+          "topic": "/nexis/security/alarm/alarm_state_data",
+          "proto": "nexis.security.alarm.AlarmStateDataList"
+        }
+      ],
+      "sub": []
+    },
+    "factory_calibration": {
+      "domain": "system",
+      "layer": 5,
+      "runtime": "nexis",
+      "pub": [],
+      "sub": []
+    },
+    "fault_manager": {
+      "domain": "system",
+      "layer": 4,
+      "runtime": "nexis",
+      "pub": [
+        {
+          "topic": "/nexis/security/alarm/fault_process",
+          "proto": "nexis.security.alarm.FaultProcess"
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/nexis/security/alarm/alarm_state_data",
+          "proto": "nexis.security.alarm.AlarmStateDataList"
+        }
+      ]
+    },
+    "localization": {
+      "domain": "system",
+      "layer": 5,
+      "runtime": "nexis",
+      "pub": [
+        {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_02",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_delta",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_utm",
+          "proto": "neodrive.global.openapi.ld.PilotState"
+        },
+        {
+          "topic": "/localization/ndt_pointcloud",
+          "proto": "neodrive.global.drivers.lidar.PointCloud"
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/sensor/novatel/Imu",
+          "proto": "neodrive.global.drivers.gnss.Imu"
+        },
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus"
+        },
+        {
+          "topic": "/pnc/control",
+          "proto": "neodrive.global.control.ControlCommand"
+        },
+        {
+          "topic": "/sensor/novatel/bestgnsspos",
+          "proto": "neodrive.global.drivers.gnss.BestPos"
+        },
+        {
+          "topic": "/sensor/novatel/bestgnssvel",
+          "proto": "neodrive.global.drivers.gnss.BestVel"
+        },
+        {
+          "topic": "/sensor/novatel/Heading",
+          "proto": "neodrive.global.drivers.gnss.Heading"
+        },
+        {
+          "topic": "/state_machine/transition",
+          "proto": "neodrive.global.state_machine.GlobalStateMachine"
+        },
+        {
+          "topic": "/perception/obj_infer",
+          "proto": "neodrive.global.neo_perception.BevMap"
+        }
+      ]
+    },
+    "map_router": {
+      "domain": "maprouter",
+      "layer": 3,
+      "runtime": "nexis",
+      "pub": [
+        {
+          "topic": "/perception/tld_postprocess",
+          "proto": "neodrive.global.neo_perception.TrafficLightDetections"
+        },
+        {
+          "topic": "/perception/static",
+          "proto": "neodrive.global.neo_perception.BevMap"
+        },
+        {
+          "topic": "/neo_map_router/router_output",
+          "proto": "neodrive.global.map_router.MapRouter"
+        },
+        {
+          "topic": "/maprouter/debug_localmap",
+          "proto": "neodrive.global.neo_perception.BevMap"
+        },
+        {
+          "topic": "/maprouter/navi_cache",
+          "proto": "neodrive.global.map_router.NaviCache"
+        },
+        {
+          "topic": "/perception/occ_fusion_map",
+          "proto": "neodrive.global.neo_perception.OccFusion"
+        },
+        {
+          "topic": "/perception/rod_output",
+          "proto": "neodrive.global.neo_perception.RodArray"
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/perception/tld_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/map_tr_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        {
+          "topic": "/perception/obj_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/occ_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/lane_seg_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/pnc/prediction",
+          "proto": "neodrive.global.prediction.PredictionObstacles"
+        },
+        {
+          "topic": "/perception/rod_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/static",
+          "proto": "neodrive.global.neo_perception.BevMap"
+        },
+        {
+          "topic": "/perception/rod_output",
+          "proto": "neodrive.global.neo_perception.RodArray"
+        },
+        {
+          "topic": "/maprouter/location",
+          "proto": "neodrive.map_engine.location.GpsLocationChangePub"
+        },
+        {
+          "topic": "/maprouter/guideinfo",
+          "proto": "neodrive.map_engine.guide.NaviInfoPub"
+        },
+        {
+          "topic": "/maprouter/navirouteinfo",
+          "proto": "neodrive.map_engine.naviroute.AMapCalcRouteResultPub"
+        },
+        {
+          "topic": "/maprouter/maps",
+          "proto": "neodrive.global.neo_map.NeoMaps"
+        },
+        {
+          "topic": "/state_machine/transition",
+          "proto": "neodrive.global.state_machine.GlobalStateMachine"
+        },
+        {
+          "topic": "/maprouter/dynamic_layer_on_path",
+          "proto": "neodrive.global.DynamicLayer.DynamicLayersOnPath"
+        },
+        {
+          "topic": "/maprouter/routing_request",
+          "proto": "neodrive.global.openapild.routing.OpenApiRoutingRequest"
+        },
+        {
+          "topic": "/maprouter/adjusted_navi_request_info",
+          "proto": "neodrive.global.neo_map.NaviRequestInfo"
+        },
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus"
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": "neodrive.global.status.Chassis"
+        }
+      ]
+    },
+    "model_infer": {
+      "domain": "perception",
+      "layer": 2,
+      "runtime": "nexis",
+      "pub": [
+        {
+          "topic": "/perception/obj_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/map_tr_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/tld_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/occ_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/parking_occ_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/rod_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/lane_seg_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/mapping/lidar_freespace",
+          "proto": "neodrive.global.freespace.FreeSpaceInfo"
+        },
+        {
+          "topic": "/pnc/prediction",
+          "proto": ""
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus"
+        },
+        {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed"
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": "neodrive.global.status.Chassis"
+        },
+        {
+          "topic": "/pnc/prediction",
+          "proto": "neodrive.global.prediction.PredictionObstacles"
+        }
+      ]
+    },
+    "neo_camera": {
+      "domain": "sensor",
+      "layer": 0,
+      "runtime": "nexis",
+      "pub": [],
+      "sub": []
+    },
+    "neo_canbus": {
+      "domain": "sensor",
+      "layer": 0,
+      "runtime": "nexis",
+      "pub": [
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": "neodrive.global.status.Chassis"
+        },
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus"
+        },
+        {
+          "topic": "/canbus/timestamp",
+          "proto": "neodrive.global.common.header.Header"
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/aeb/aeb_cmd",
+          "proto": "neodrive.global.planning.AebCmd"
+        },
+        {
+          "topic": "/pnc/control",
+          "proto": "neodrive.global.control.ControlCommand"
+        },
+        {
+          "topic": "/patrol/discode",
+          "proto": "neodrive.global.patrol.DisCode"
+        },
+        {
+          "topic": "/localization/100hz/localization_pose",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        {
+          "topic": "/canbus/horn_light_cmd",
+          "proto": "neodrive.global.status.HornLightsCmd"
+        },
+        {
+          "topic": "/planning/pilot_state",
+          "proto": "neodrive.global.planning.PilotState"
+        },
+        {
+          "topic": "/openapi/auto_driver_status",
+          "proto": "neodrive.global.common.AutoDriverStatus"
+        },
+        {
+          "topic": "/vehicle/self/clean",
+          "proto": "neodrive.global.common.VehicleSelfClean"
+        },
+        {
+          "topic": "/perception/environment_monitor",
+          "proto": "neodrive.global.perception.EnvironmentMonitorList"
+        },
+        {
+          "topic": "/state_machine/transition",
+          "proto": "neodrive.global.state_machine.GlobalStateMachine"
+        }
+      ]
+    },
+    "neo_lidar": {
+      "domain": "sensor",
+      "layer": 0,
+      "runtime": "nexis",
+      "pub": [],
+      "sub": []
+    },
+    "neo_sensor": {
+      "domain": "sensor",
+      "layer": 0,
+      "runtime": "nexis",
+      "pub": [
+        {
+          "topic": "/sensor/novatel/bestgnsspos",
+          "proto": "neodrive.global.drivers.gnss.BestPos"
+        },
+        {
+          "topic": "/sensor/novatel/bestgnssvel",
+          "proto": "neodrive.global.drivers.gnss.BestVel"
+        },
+        {
+          "topic": "/sensor/novatel/Heading",
+          "proto": "neodrive.global.drivers.gnss.Heading"
+        },
+        {
+          "topic": "/sensor/novatel/Imu",
+          "proto": "neodrive.global.drivers.gnss.RawIMUX"
+        },
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.status.Chassis"
+        }
+      ],
+      "sub": []
+    },
+    "state_machine": {
+      "domain": "system",
+      "layer": 1,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/openapi_ld/pilot_state",
+          "proto": "neodrive.global.openapi.ld.PilotState"
+        },
+        {
+          "topic": "/openapi_ld/notify",
+          "proto": "neodrive.global.openapi.ld.OpenApiNotifyData"
+        },
+        {
+          "topic": "/openapi_ld/extricate_request",
+          "proto": "neodrive.global.openapi.ld.OpenApiExtricateRequest"
+        },
+        {
+          "topic": "/openapi/dispatch_result",
+          "proto": "neodrive.global.openapi.ld.OpenApiDispatchResult"
+        },
+        {
+          "topic": "/openapi_ld/event",
+          "proto": "neodrive.global.openapi.ld.EventInfo"
+        },
+        {
+          "topic": "/openapi_ld/zone_report",
+          "proto": "neodrive.global.openapi.ld.ZoneReport"
+        },
+        {
+          "topic": "/state_machine/transition",
+          "proto": "neodrive.global.state_machine.GlobalStateMachine"
+        },
+        {
+          "topic": "/state_machine/transition_debug",
+          "proto": "neodrive.global.state_machine.TransitionDebugInfo"
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/openapi_ld/dispatch_request",
+          "proto": "neodrive.global.openapi.ld.OpenApiDispatchRequest"
+        },
+        {
+          "topic": "/openapi_ld/extricate_response",
+          "proto": "neodrive.global.openapi.ld.OpenApiExtricateResponse"
+        },
+        {
+          "topic": "/pnc/pnc_state",
+          "proto": "neodrive.global.planning.PlanningState"
+        },
+        {
+          "topic": "/dcl/report",
+          "proto": "neodrive.global.dcl.DclReport"
+        },
+        {
+          "topic": "/neo_map_router/router_output",
+          "proto": "neodrive.global.map_router.MapRouter"
+        },
+        {
+          "topic": "/aeb/aeb_cmd",
+          "proto": "neodrive.global.planning.AebCmd"
+        },
+        {
+          "topic": "/dynamiclayer/vehicle_area_status",
+          "proto": "neodrive.global.DynamicLayer.VehicleAreaStatus"
+        },
+        {
+          "topic": "/maprouter/dynamic_layer_on_path",
+          "proto": "neodrive.global.DynamicLayer.DynamicLayersOnPath"
+        },
+        {
+          "topic": "/maprouter/operation_area_on_path",
+          "proto": "neodrive.global.neo_map.OperationAreasOnPath"
+        },
+        {
+          "topic": "/maprouter/location",
+          "proto": "neodrive.map_engine.location.GpsLocationChangePub"
+        },
+        {
+          "topic": "/maprouter/routing_request",
+          "proto": "neodrive.global.openapild.routing.OpenApiRoutingRequest"
+        },
+        {
+          "topic": "/openapi_ld/vehicle_clean_request",
+          "proto": "neodrive.global.openapi.ld.VehicleCleanRequest"
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": "neodrive.global.status.Chassis"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        {
+          "topic": "/pnc/control",
+          "proto": "neodrive.global.control.ControlCommand"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_utm",
+          "proto": "neodrive.global.openapi.ld.PilotState"
+        },
+        {
+          "topic": "/system/system_monitor",
+          "proto": "nexis.system.monitor.SystemMonitor"
+        },
+        {
+          "topic": "/openapi_ld/vlm_response",
+          "proto": "neodrive.global.openapi.ld.VlmResponse"
+        }
+      ]
+    },
+    "x86_model_infer": {
+      "domain": "system",
+      "layer": 5,
+      "runtime": "nexis",
+      "pub": [
+        {
+          "topic": "/perception/obj_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/map_tr_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/tld_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/occ_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/parking_occ_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/rod_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/lane_seg_infer",
+          "proto": ""
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/sensor/lidar/top/pointcloud",
+          "proto": "PointCloud"
+        },
+        {
+          "topic": "/sensor/lidar/front/pointcloud",
+          "proto": "PointCloud"
+        }
+      ]
+    },
+    "location": {
+      "domain": "localization",
+      "layer": 1,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/localization/100hz/localization_pose",
+          "proto": ""
+        },
+        {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": ""
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": ""
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_02",
+          "proto": ""
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_delta",
+          "proto": ""
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/sensor/novatel/bestgnsspos",
+          "proto": ""
+        },
+        {
+          "topic": "/sensor/novatel/bestgnssvel",
+          "proto": ""
+        },
+        {
+          "topic": "/sensor/novatel/Heading",
+          "proto": ""
+        },
+        {
+          "topic": "/sensor/novatel/Imu",
+          "proto": ""
+        },
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": ""
+        }
+      ]
+    },
+    "planning": {
+      "domain": "pnc",
+      "layer": 4,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/pnc/planning",
+          "proto": ""
+        },
+        {
+          "topic": "/pnc/pnc_state",
+          "proto": ""
+        },
+        {
+          "topic": "/planning/pilot_state",
+          "proto": ""
+        },
+        {
+          "topic": "/planning/monitor",
+          "proto": ""
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/neo_map_router/router_output",
+          "proto": ""
+        },
+        {
+          "topic": "/localization/100hz/localization_pose",
+          "proto": ""
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": ""
+        },
+        {
+          "topic": "/pnc/prediction",
+          "proto": ""
+        },
+        {
+          "topic": "/state_machine/transition",
+          "proto": ""
+        }
+      ]
+    },
+    "control": {
+      "domain": "pnc",
+      "layer": 5,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/pnc/control",
+          "proto": ""
+        },
+        {
+          "topic": "/pnc/control_monitor",
+          "proto": ""
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/pnc/planning",
+          "proto": ""
+        },
+        {
+          "topic": "/localization/100hz/localization_pose",
+          "proto": ""
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": ""
+        }
+      ]
+    },
+    "aeb": {
+      "domain": "pnc",
+      "layer": 5,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/aeb/aeb_cmd",
+          "proto": ""
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/localization/100hz/localization_pose",
+          "proto": ""
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": ""
+        }
+      ]
+    },
+    "perception": {
+      "domain": "perception",
+      "layer": 3,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/pnc/prediction",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/environment_monitor",
+          "proto": ""
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/perception/obj_infer",
+          "proto": ""
+        },
+        {
+          "topic": "/perception/tld_infer",
+          "proto": ""
+        }
+      ]
+    },
+    "guardian_cyber": {
+      "domain": "system",
+      "layer": 1,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/patrol/discode",
+          "proto": ""
+        },
+        {
+          "topic": "/patrol/status",
+          "proto": ""
+        }
+      ],
+      "sub": []
+    },
+    "orin_ivi": {
+      "domain": "system",
+      "layer": 2,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/maprouter/location",
+          "proto": ""
+        },
+        {
+          "topic": "/maprouter/guideinfo",
+          "proto": ""
+        },
+        {
+          "topic": "/maprouter/navirouteinfo",
+          "proto": ""
+        },
+        {
+          "topic": "/maprouter/maps",
+          "proto": ""
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": ""
+        }
+      ]
+    },
+    "openapi": {
+      "domain": "system",
+      "layer": 1,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/openapi/auto_driver_status",
+          "proto": ""
+        },
+        {
+          "topic": "/maprouter/routing_request",
+          "proto": ""
+        },
+        {
+          "topic": "/maprouter/adjusted_navi_request_info",
+          "proto": ""
+        },
+        {
+          "topic": "/openapi_ld/pilot_state",
+          "proto": ""
+        },
+        {
+          "topic": "/openapi_ld/zone_report",
+          "proto": ""
+        },
+        {
+          "topic": "/openapi_ld/dispatch_request",
+          "proto": ""
+        }
+      ],
+      "sub": []
+    },
+    "dynamic_layer": {
+      "domain": "pnc",
+      "layer": 2,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/maprouter/dynamic_layer_on_path",
+          "proto": ""
+        },
+        {
+          "topic": "/maprouter/dynamic_layer",
+          "proto": ""
+        },
+        {
+          "topic": "/maprouter/dynamic_layer_query_request",
+          "proto": ""
+        },
+        {
+          "topic": "/dynamiclayer/vehicle_area_status",
+          "proto": ""
+        },
+        {
+          "topic": "/dynamiclayer/dynamic_layer_query_response",
+          "proto": ""
+        }
+      ],
+      "sub": []
+    },
+    "system_monitor": {
+      "domain": "system",
+      "layer": 3,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/system/system_monitor",
+          "proto": ""
+        },
+        {
+          "topic": "/nexis/security/alarm/alarm_state_data",
+          "proto": ""
+        },
+        {
+          "topic": "/neolix/e2e/latency",
+          "proto": ""
+        }
+      ],
+      "sub": []
+    },
+    "dcl": {
+      "domain": "system",
+      "layer": 6,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/dcl/report",
+          "proto": ""
+        }
+      ],
+      "sub": []
+    },
+    "lidar_freespace": {
+      "domain": "perception",
+      "layer": 2,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/mapping/lidar_freespace_3d",
+          "proto": ""
+        }
+      ],
+      "sub": []
+    },
+    "mpu_monitor": {
+      "domain": "system",
+      "layer": 6,
+      "runtime": "cyber",
+      "pub": [],
+      "sub": []
+    },
+    "tsp_client": {
+      "domain": "system",
+      "layer": 6,
+      "runtime": "cyber",
+      "pub": [],
+      "sub": []
+    }
+  },
+  "dataTypes": {
+    "local_alarm_state": "nexis.security.alarm.AlarmStateDataList",
+    "local_alarm_state_fault": "nexis.security.alarm.AlarmStateDataList",
+    "fault_process_data": "nexis.security.alarm.FaultProcess",
+    "imu_data": "neodrive.global.drivers.gnss.Imu",
+    "whee_speed_datal": "neodrive.global.canbus.PbCarStatus",
+    "can_car_status": "neolix.nexis.ds.CarStatus",
+    "canbus_pub_chassis": "neodrive.global.status.Chassis",
+    "canbus_pub_wheel_speed": "neodrive.global.canbus.PbCarStatus",
+    "canbus_timestamp": "neodrive.global.common.header.Header",
+    "can_cmd_aeb": "CanFrame",
+    "can_cmd_brake": "CanFrame",
+    "can_cmd_imu": "CanFrame",
+    "can_cmd_drive": "CanFrame",
+    "can_cmd_eps": "CanFrame",
+    "can_cmd_park": "CanFrame",
+    "can_cmd_light": "CanFrame",
+    "gnss_data": "neodrive.global.localization.LocalizationEstimate",
+    "udp_gnss_bestpos": "neodrive.global.drivers.gnss.BestPos",
+    "udp_gnss_bestvel": "neodrive.global.drivers.gnss.BestVel",
+    "udp_gnss_heading": "neodrive.global.drivers.gnss.Heading",
+    "udp_gnss_rawimu": "neodrive.global.drivers.gnss.RawIMUX",
+    "wheel_speed": "neodrive.global.status.Chassis",
+    "cb_aeb_cmd": "neodrive.global.planning.AebCmd",
+    "cb_pnc_control": "neodrive.global.control.ControlCommand",
+    "cb_patrol_discode": "neodrive.global.patrol.DisCode",
+    "cb_localization_pose": "neodrive.global.localization.LocalizationEstimate",
+    "cb_horn_light_cmd": "neodrive.global.status.HornLightsCmd",
+    "cb_pilot_state": "neodrive.global.planning.PilotState",
+    "cb_auto_driver_status": "neodrive.global.common.AutoDriverStatus",
+    "cb_vehicle_self_clean": "neodrive.global.common.VehicleSelfClean",
+    "cb_environment_monitor": "neodrive.global.perception.EnvironmentMonitorList",
+    "cb_state_machine": "neodrive.global.state_machine.GlobalStateMachine",
+    "prediction_obstacles": "neodrive.global.prediction.PredictionObstacles",
+    "lidar_freespace": "neodrive.global.freespace.FreeSpaceInfo",
+    "top_lidar": "PointCloud",
+    "front_lidar": "PointCloud",
+    "loc_imu": "neodrive.global.drivers.gnss.Imu",
+    "loc_canbus": "neodrive.global.canbus.PbCarStatus",
+    "loc_control_cmd": "neodrive.global.control.ControlCommand",
+    "loc_vehicle_speed": "neodrive.global.localization_dr.LocalizationVehicleSpeed",
+    "loc_bestgnsspos": "neodrive.global.drivers.gnss.BestPos",
+    "loc_bestgnssvel": "neodrive.global.drivers.gnss.BestVel",
+    "loc_heading": "neodrive.global.drivers.gnss.Heading",
+    "loc_state_machine": "neodrive.global.state_machine.GlobalStateMachine",
+    "loc_obj_detection": "neodrive.global.neo_perception.BevMap",
+    "loc_msf_pose": "neodrive.global.localization.LocalizationEstimate",
+    "loc_msf_pose_02": "neodrive.global.localization.LocalizationEstimate",
+    "loc_msf_pose_delta": "neodrive.global.localization.LocalizationEstimate",
+    "loc_msf_pose_utm": "neodrive.global.openapi.ld.PilotState",
+    "loc_ndt_pointcloud": "neodrive.global.drivers.lidar.PointCloud",
+    "traffic_light_detection_post_process": "neodrive.global.neo_perception.TrafficLightDetections",
+    "perception_static": "neodrive.global.neo_perception.BevMap",
+    "parking_prediction": "neodrive.global.prediction.PredictionObstacles",
+    "parking_occ_fusion": "neodrive.global.neo_perception.OccFusion",
+    "parking_rod_output": "neodrive.global.neo_perception.RodArray",
+    "map_router_odom": "neodrive.global.localization_dr.LocalizationVehicleSpeed",
+    "map_router_ins": "neodrive.global.localization.LocalizationEstimate",
+    "map_router_bev_map": "neodrive.global.neo_perception.BevMap",
+    "map_router_rod": "neodrive.global.neo_perception.RodArray",
+    "map_router_sd_location": "neodrive.map_engine.location.GpsLocationChangePub",
+    "map_router_sd_guide": "neodrive.map_engine.guide.NaviInfoPub",
+    "map_router_sd_route": "neodrive.map_engine.naviroute.AMapCalcRouteResultPub",
+    "map_router_neo_map": "neodrive.global.neo_map.NeoMaps",
+    "map_router_state_machine": "neodrive.global.state_machine.GlobalStateMachine",
+    "map_router_dynamic_layer": "neodrive.global.DynamicLayer.DynamicLayersOnPath",
+    "map_router_end_trajectory": "neodrive.global.openapild.routing.OpenApiRoutingRequest",
+    "map_router_navi_request_info": "neodrive.global.neo_map.NaviRequestInfo",
+    "map_router_output": "neodrive.global.map_router.MapRouter",
+    "map_router_local_map_debug": "neodrive.global.neo_perception.BevMap",
+    "map_router_navi_cache": "neodrive.global.map_router.NaviCache",
+    "fsm_dispatch_request": "neodrive.global.openapi.ld.OpenApiDispatchRequest",
+    "fsm_extricate_response": "neodrive.global.openapi.ld.OpenApiExtricateResponse",
+    "fsm_planning_state": "neodrive.global.planning.PlanningState",
+    "fsm_collision_request": "neodrive.global.dcl.DclReport",
+    "fsm_router_output": "neodrive.global.map_router.MapRouter",
+    "fsm_aeb_cmd": "neodrive.global.planning.AebCmd",
+    "fsm_vehicle_area_status": "neodrive.global.DynamicLayer.VehicleAreaStatus",
+    "fsm_dynamic_layers_on_path": "neodrive.global.DynamicLayer.DynamicLayersOnPath",
+    "fsm_operation_areas_on_path": "neodrive.global.neo_map.OperationAreasOnPath",
+    "fsm_driving_trajectory": "neodrive.map_engine.location.GpsLocationChangePub",
+    "fsm_parking_trajectory": "neodrive.global.openapild.routing.OpenApiRoutingRequest",
+    "fsm_vehicle_clean": "neodrive.global.openapi.ld.VehicleCleanRequest",
+    "fsm_chassis": "neodrive.global.status.Chassis",
+    "fsm_localization": "neodrive.global.localization.LocalizationEstimate",
+    "fsm_control": "neodrive.global.control.ControlCommand",
+    "fsm_utm_pose": "neodrive.global.openapi.ld.PilotState",
+    "fsm_sys_monitor": "nexis.system.monitor.SystemMonitor",
+    "fsm_vlm_response": "neodrive.global.openapi.ld.VlmResponse",
+    "fsm_pilot_state": "neodrive.global.openapi.ld.PilotState",
+    "fsm_notify": "neodrive.global.openapi.ld.OpenApiNotifyData",
+    "fsm_extricate_request": "neodrive.global.openapi.ld.OpenApiExtricateRequest",
+    "fsm_dispatch_result": "neodrive.global.openapi.ld.OpenApiDispatchResult",
+    "fsm_event_info": "neodrive.global.openapi.ld.EventInfo",
+    "fsm_zone_report": "neodrive.global.openapi.ld.ZoneReport",
+    "fsm_transition": "neodrive.global.state_machine.GlobalStateMachine",
+    "fsm_transition_debug": "neodrive.global.state_machine.TransitionDebugInfo",
+    "x86_camera_1": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_2": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_9": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_8": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_5": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_7": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_4": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_6": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_11": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_3": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_10": "nexis.drivers.camera.ImageMeta",
+    "x86_camera_0": "nexis.drivers.camera.ImageMeta"
+  },
+  "topicToPublisher": {
+    "/nexis/security/alarm/alarm_state_data": "system_monitor",
+    "/nexis/security/alarm/fault_process": "fault_manager",
+    "/localization/100hz/localization_vehicle_speed": "location",
+    "/localization/100hz/inspvax_gnss_msf": "location",
+    "/localization/100hz/inspvax_gnss_msf_02": "location",
+    "/localization/100hz/inspvax_gnss_msf_delta": "location",
+    "/localization/100hz/inspvax_gnss_msf_utm": "localization",
+    "/localization/ndt_pointcloud": "localization",
+    "/perception/tld_postprocess": "map_router",
+    "/perception/static": "map_router",
+    "/neo_map_router/router_output": "map_router",
+    "/maprouter/debug_localmap": "map_router",
+    "/maprouter/navi_cache": "map_router",
+    "/perception/occ_fusion_map": "map_router",
+    "/perception/rod_output": "map_router",
+    "/perception/obj_infer": "x86_model_infer",
+    "/perception/map_tr_infer": "x86_model_infer",
+    "/perception/tld_infer": "x86_model_infer",
+    "/perception/occ_infer": "x86_model_infer",
+    "/perception/parking_occ_infer": "x86_model_infer",
+    "/perception/rod_infer": "x86_model_infer",
+    "/perception/lane_seg_infer": "x86_model_infer",
+    "/mapping/lidar_freespace": "model_infer",
+    "/pnc/prediction": "perception",
+    "/planning/proxy/DuDriveChassis": "neo_canbus",
+    "/canbus/vehicle_speed/Vehicle_speed": "neo_sensor",
+    "/canbus/timestamp": "neo_canbus",
+    "/sensor/novatel/bestgnsspos": "neo_sensor",
+    "/sensor/novatel/bestgnssvel": "neo_sensor",
+    "/sensor/novatel/Heading": "neo_sensor",
+    "/sensor/novatel/Imu": "neo_sensor",
+    "/openapi_ld/pilot_state": "openapi",
+    "/openapi_ld/notify": "state_machine",
+    "/openapi_ld/extricate_request": "state_machine",
+    "/openapi/dispatch_result": "state_machine",
+    "/openapi_ld/event": "state_machine",
+    "/openapi_ld/zone_report": "openapi",
+    "/state_machine/transition": "state_machine",
+    "/state_machine/transition_debug": "state_machine",
+    "/localization/100hz/localization_pose": "location",
+    "/pnc/planning": "planning",
+    "/pnc/pnc_state": "planning",
+    "/planning/pilot_state": "planning",
+    "/planning/monitor": "planning",
+    "/pnc/control": "control",
+    "/pnc/control_monitor": "control",
+    "/aeb/aeb_cmd": "aeb",
+    "/perception/environment_monitor": "perception",
+    "/patrol/discode": "guardian_cyber",
+    "/patrol/status": "guardian_cyber",
+    "/maprouter/location": "orin_ivi",
+    "/maprouter/guideinfo": "orin_ivi",
+    "/maprouter/navirouteinfo": "orin_ivi",
+    "/maprouter/maps": "orin_ivi",
+    "/openapi/auto_driver_status": "openapi",
+    "/maprouter/routing_request": "openapi",
+    "/maprouter/adjusted_navi_request_info": "openapi",
+    "/openapi_ld/dispatch_request": "openapi",
+    "/maprouter/dynamic_layer_on_path": "dynamic_layer",
+    "/maprouter/dynamic_layer": "dynamic_layer",
+    "/maprouter/dynamic_layer_query_request": "dynamic_layer",
+    "/dynamiclayer/vehicle_area_status": "dynamic_layer",
+    "/dynamiclayer/dynamic_layer_query_response": "dynamic_layer",
+    "/system/system_monitor": "system_monitor",
+    "/neolix/e2e/latency": "system_monitor",
+    "/dcl/report": "dcl",
+    "/mapping/lidar_freespace_3d": "lidar_freespace"
+  },
+  "topicToSubscribers": {
+    "/localization/100hz/inspvax_gnss_msf": [
+      "common_manager",
+      "map_router",
+      "model_infer",
+      "state_machine"
+    ],
+    "/canbus/vehicle_speed/Vehicle_speed": [
+      "common_manager",
+      "localization",
+      "map_router",
+      "model_infer",
+      "location"
+    ],
+    "/localization/100hz/localization_vehicle_speed": [
+      "common_manager",
+      "map_router",
+      "model_infer",
+      "orin_ivi"
+    ],
+    "/planning/proxy/DuDriveChassis": [
+      "common_manager",
+      "map_router",
+      "model_infer",
+      "state_machine",
+      "planning",
+      "control",
+      "aeb"
+    ],
+    "/nexis/security/alarm/alarm_state_data": [
+      "fault_manager"
+    ],
+    "/sensor/novatel/Imu": [
+      "localization",
+      "location"
+    ],
+    "/pnc/control": [
+      "localization",
+      "neo_canbus",
+      "state_machine"
+    ],
+    "/sensor/novatel/bestgnsspos": [
+      "localization",
+      "location"
+    ],
+    "/sensor/novatel/bestgnssvel": [
+      "localization",
+      "location"
+    ],
+    "/sensor/novatel/Heading": [
+      "localization",
+      "location"
+    ],
+    "/state_machine/transition": [
+      "localization",
+      "map_router",
+      "neo_canbus",
+      "planning"
+    ],
+    "/perception/obj_infer": [
+      "localization",
+      "map_router",
+      "perception"
+    ],
+    "/perception/tld_infer": [
+      "map_router",
+      "perception"
+    ],
+    "/perception/map_tr_infer": [
+      "map_router"
+    ],
+    "/perception/occ_infer": [
+      "map_router"
+    ],
+    "/perception/lane_seg_infer": [
+      "map_router"
+    ],
+    "/pnc/prediction": [
+      "map_router",
+      "model_infer",
+      "planning"
+    ],
+    "/perception/rod_infer": [
+      "map_router"
+    ],
+    "/perception/static": [
+      "map_router"
+    ],
+    "/perception/rod_output": [
+      "map_router"
+    ],
+    "/maprouter/location": [
+      "map_router",
+      "state_machine"
+    ],
+    "/maprouter/guideinfo": [
+      "map_router"
+    ],
+    "/maprouter/navirouteinfo": [
+      "map_router"
+    ],
+    "/maprouter/maps": [
+      "map_router"
+    ],
+    "/maprouter/dynamic_layer_on_path": [
+      "map_router",
+      "state_machine"
+    ],
+    "/maprouter/routing_request": [
+      "map_router",
+      "state_machine"
+    ],
+    "/maprouter/adjusted_navi_request_info": [
+      "map_router"
+    ],
+    "/aeb/aeb_cmd": [
+      "neo_canbus",
+      "state_machine"
+    ],
+    "/patrol/discode": [
+      "neo_canbus"
+    ],
+    "/localization/100hz/localization_pose": [
+      "neo_canbus",
+      "planning",
+      "control",
+      "aeb"
+    ],
+    "/canbus/horn_light_cmd": [
+      "neo_canbus"
+    ],
+    "/planning/pilot_state": [
+      "neo_canbus"
+    ],
+    "/openapi/auto_driver_status": [
+      "neo_canbus"
+    ],
+    "/vehicle/self/clean": [
+      "neo_canbus"
+    ],
+    "/perception/environment_monitor": [
+      "neo_canbus"
+    ],
+    "/openapi_ld/dispatch_request": [
+      "state_machine"
+    ],
+    "/openapi_ld/extricate_response": [
+      "state_machine"
+    ],
+    "/pnc/pnc_state": [
+      "state_machine"
+    ],
+    "/dcl/report": [
+      "state_machine"
+    ],
+    "/neo_map_router/router_output": [
+      "state_machine",
+      "planning"
+    ],
+    "/dynamiclayer/vehicle_area_status": [
+      "state_machine"
+    ],
+    "/maprouter/operation_area_on_path": [
+      "state_machine"
+    ],
+    "/openapi_ld/vehicle_clean_request": [
+      "state_machine"
+    ],
+    "/localization/100hz/inspvax_gnss_msf_utm": [
+      "state_machine"
+    ],
+    "/system/system_monitor": [
+      "state_machine"
+    ],
+    "/openapi_ld/vlm_response": [
+      "state_machine"
+    ],
+    "/sensor/lidar/top/pointcloud": [
+      "x86_model_infer"
+    ],
+    "/sensor/lidar/front/pointcloud": [
+      "x86_model_infer"
+    ],
+    "/pnc/planning": [
+      "control"
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+---
+description: First Principles Engineering — all bug fixes and design changes must follow this protocol
+alwaysApply: true
+---
+
+# First Principles Engineering Protocol
+
+## Before Any Fix or Change
+
+1. **Root Cause Analysis** — Never fix symptoms. Trace the problem to its fundamental cause. Ask "why" at least 3 times until you reach the actual broken invariant or wrong assumption.
+
+2. **Impact Analysis** — Before writing any code change, explicitly list:
+   - What other code paths depend on the value/behavior being changed
+   - What downstream effects the change will have (performance, visual, data correctness)
+   - Whether the fix introduces new constraints that conflict with existing ones
+
+3. **Verify the Fix Matches the Problem** — The proposed solution must directly address the root cause, not work around it. If the fix is a cap/threshold/skip/delay, explain why it's the correct boundary, not an arbitrary number.
+
+## During Implementation
+
+4. **One Change, One Purpose** — Each modification should fix exactly one problem. If a fix requires changing a second thing, verify that second change doesn't break anything independently.
+
+5. **No Cascading Assumptions** — When changing a parameter (speed, rate, size, threshold), check every other place that depends on it. Example: changing particle speed requires re-evaluating particle spawn rate, pool size, and visual density.
+
+6. **Test the Actual User Scenario** — After making a change, mentally simulate (or actually test) the exact scenario the user reported. Don't just confirm "code compiles" — confirm "the visual/behavior matches what the user expects."
+
+## After Implementation
+
+7. **Regression Check** — Before declaring a fix done, verify that previously working features still work. Especially check:
+   - Related visual elements (if you changed edge rendering, verify node rendering too)
+   - Performance (if you added computation per frame, verify frame rate is still smooth)
+   - State transitions (if you changed playback behavior, verify pause/resume/scrub still work)
+
+8. **No Silent Failures** — Never suppress errors with try-catch without logging. Never skip a condition without documenting why. If something "can't happen," assert it.
+
+## Communication
+
+9. **Be Honest About Uncertainty** — If you're not sure a fix will work, say so. Don't claim "fixed" until you've verified the root cause is addressed and no regressions are introduced.
+
+10. **Explain the "Why"** — When proposing a fix, always explain: what was wrong, why it was wrong, why this specific fix is correct, and what would break if the fix value were different.
