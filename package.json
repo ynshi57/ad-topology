@@ -1,0 +1,27 @@
+{
+  "name": "ad-topology",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebuild": "node scripts/build-nexis-config.js",
+    "dev": "npm run prebuild && vite",
+    "server": "node server/index.js",
+    "dev:full": "npm run prebuild && (node server/index.js &) && vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.4"
+  },
+  "dependencies": {
+    "@mcap/browser": "^1.1.0",
+    "@mcap/core": "^2.2.0",
+    "@protobufjs/base64": "^1.1.2",
+    "d3": "^7.9.0",
+    "fzstd": "^0.1.1",
+    "protobufjs": "^8.0.1",
+    "three": "^0.183.2",
+    "ws": "^8.20.0"
+  }
+}
