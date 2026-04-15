@@ -209,6 +209,7 @@ int main(int argc, char** argv) {
                     harness::FrameInput fi;
                     fi.timestampNs = inp["timestamp_ns"].asUInt64();
                     fi.dataName = inp["name"].asString();
+                    fi.protoType = inp.get("proto_type", "").asString();
                     std::string decoded = base64Decode(inp["data_base64"].asString());
                     fi.protoData.assign(decoded.begin(), decoded.end());
                     inputs.push_back(std::move(fi));

@@ -242,15 +242,79 @@ const CYBER_PROCESSES = {
 // ========================================================================
 
 const NEXIS_META = {
-  neo_sensor:    { process: 'neo_sensor',    domain: 'sensor',     layer: 0 },
-  neo_camera:    { process: 'neo_camera',    domain: 'sensor',     layer: 0 },
-  neo_canbus:    { process: 'neo_canbus',    domain: 'sensor',     layer: 0 },
-  neo_lidar:     { process: 'neo_lidar',     domain: 'sensor',     layer: 0 },
-  model_infer:   { process: 'model_infer',   domain: 'perception', layer: 2 },
-  map_router:    { process: 'map_router',    domain: 'maprouter',  layer: 3 },
-  default:       { process: 'default',       domain: 'system',     layer: 3 },
-  fault_manager: { process: 'fault_manager', domain: 'system',     layer: 4 },
+  neo_sensor:      { process: 'neo_sensor',    domain: 'sensor',       layer: 0 },
+  neo_camera:      { process: 'neo_camera',    domain: 'sensor',       layer: 0 },
+  neo_canbus:      { process: 'neo_canbus',    domain: 'sensor',       layer: 0 },
+  neo_lidar:       { process: 'neo_lidar',     domain: 'sensor',       layer: 0 },
+  model_infer:     { process: 'model_infer',   domain: 'perception',   layer: 2 },
+  x86_model_infer: { process: 'model_infer',   domain: 'perception',   layer: 2 },
+  localization:    { process: 'location',      domain: 'localization', layer: 1 },
+  map_router:      { process: 'map_router',    domain: 'maprouter',    layer: 3 },
+  default:         { process: 'default',       domain: 'system',       layer: 3 },
+  fault_manager:   { process: 'fault_manager', domain: 'system',       layer: 4 },
 };
+
+// ========================================================================
+// 4. Parse flow.d — executor scheduling (bundle definitions)
+// ========================================================================
+
+const NEXIS_FLOW = join(WORKSPACE, 'ad_dag/config/nexis/resource/flow.d');
+
+function parseFlowFiles(flowDir) {
+  const executorFlows = {};
+  if (!existsSync(flowDir)) return executorFlows;
+
+  for (const file of readdirSync(flowDir).filter(f => f.endsWith('.pbtxt'))) {
+    const content = readFileSync(join(flowDir, file), 'utf8');
+    const nodeLines = [...content.matchAll(/node\s*:\s*"([^"]+)"/g)];
+    const bundleLines = [...content.matchAll(/bundle\s*:\s*"([^"]+)"/g)];
+
+    const bundleMap = {};
+    for (const bm of bundleLines) {
+      const parts = bm[1].split('@');
+      const header = parts[0].trim().split(/\s+/);
+      const bundleName = header[0];
+      const queueSize = parseInt(header[1]) || 5;
+      const intervalUs = parseInt(header[2]) || 200000;
+
+      const inputsPart = (parts[1] || '').trim();
+      const required = [];
+      const optional = [];
+
+      for (const token of inputsPart.split(/\s+/).filter(Boolean)) {
+        const clean = token.replace(/\(.*?\)/g, '');
+        if (clean.startsWith('[!')) {
+          required.push(clean.replace(/[\[\]!]/g, ''));
+        } else if (clean.startsWith('!')) {
+          required.push(clean.replace('!', ''));
+        } else if (clean.startsWith('[')) {
+          optional.push(clean.replace(/[\[\]]/g, ''));
+        }
+      }
+
+      bundleMap[bundleName] = { queueSize, intervalUs, required, optional };
+    }
+
+    for (const nm of nodeLines) {
+      const nodeStr = nm[1];
+      const execMatch = nodeStr.match(/(\S+)\s*<<\s*(\S+)\s*>>/);
+      if (!execMatch) continue;
+      const bundleName = execMatch[1];
+      const executorName = execMatch[2];
+      const bundle = bundleMap[bundleName];
+      if (bundle) {
+        executorFlows[executorName] = {
+          intervalUs: bundle.intervalUs,
+          hz: Math.round(1e6 / bundle.intervalUs * 10) / 10,
+          queueSize: bundle.queueSize,
+          requiredInputs: bundle.required,
+          optionalInputs: bundle.optional,
+        };
+      }
+    }
+  }
+  return executorFlows;
+}
 
 // ========================================================================
 // Main
@@ -274,10 +338,13 @@ function addPub(proc, topic, proto) {
   topicToPublisher[topic] = proc;
 }
 
-function addSub(proc, topic, proto) {
+function addSub(proc, topic, proto, dataName) {
   if (!processes[proc]) processes[proc] = { domain: 'system', layer: 5, runtime: 'unknown', pub: [], sub: [] };
-  if (!processes[proc].sub.find(s => s.topic === topic)) {
-    processes[proc].sub.push({ topic, proto: proto || '' });
+  const existing = processes[proc].sub.find(s => s.topic === topic);
+  if (!existing) {
+    processes[proc].sub.push({ topic, proto: proto || '', dataName: dataName || topic.split('/').pop() || topic });
+  } else if (dataName && !existing.dataName) {
+    existing.dataName = dataName;
   }
   if (!topicToSubscribers[topic]) topicToSubscribers[topic] = [];
   if (!topicToSubscribers[topic].includes(proc)) topicToSubscribers[topic].push(proc);
@@ -300,7 +367,7 @@ if (existsSync(NEXIS_DEPLOY)) {
       if (!b.topic) continue;
       const proto = dataTypes[b.name] || '';
       if (b.direction === 'pub') addPub(proc, b.topic, proto);
-      else addSub(proc, b.topic, proto);
+      else addSub(proc, b.topic, proto, b.name);
     }
   }
 }
@@ -328,6 +395,13 @@ for (const [name, p] of Object.entries(processes)) {
   console.log(`  ${name}: ${p.pub.length} pub, ${p.sub.length} sub [${p.domain}]`);
 }
 
-const config = { processes, dataTypes, topicToPublisher, topicToSubscribers };
+// --- Parse flow definitions ---
+const executorFlows = parseFlowFiles(NEXIS_FLOW);
+console.log(`  ${Object.keys(executorFlows).length} executor flow definitions`);
+for (const [name, flow] of Object.entries(executorFlows)) {
+  console.log(`    ${name}: ${flow.hz}Hz, ${flow.requiredInputs.length} required, ${flow.optionalInputs.length} optional`);
+}
+
+const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows };
 writeFileSync(OUTPUT, JSON.stringify(config, null, 2));
 console.log(`\nWritten to ${OUTPUT}`);

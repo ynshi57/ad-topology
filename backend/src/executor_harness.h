@@ -17,6 +17,7 @@ struct HarnessConfig {
 struct FrameInput {
     uint64_t timestampNs;
     std::string dataName;
+    std::string protoType;
     std::vector<uint8_t> protoData;
 };
 

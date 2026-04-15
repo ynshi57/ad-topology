@@ -7,7 +7,7 @@ import { createTopicPanel } from './topic-panel.js';
 import { createOutputPanel } from './output-panel.js';
 import { createNodeDetail } from './node-detail.js';
 import { initDecoder, decodeMessage } from './proto-decoder.js';
-import { createTestPanel } from './test-panel.js';
+import { createReplayTestView } from './test-panel.js';
 import { create3DScene } from './scene-3d.js';
 import { createSceneTopics } from './scene-topics.js';
 
@@ -493,17 +493,11 @@ function showDetailView(nodeId) {
     setupTimeline(document.getElementById('timeline-area'));
   }
 
-  // Wire Replay Test button
   setTimeout(() => {
     const testBtn = document.getElementById('nd-test-btn');
     if (testBtn) {
       testBtn.addEventListener('click', () => {
-        createTestPanel(document.body, {
-          nodeId,
-          topology: sharedTopology,
-          summary: sharedSummary,
-          onClose() {},
-        });
+        showReplayTestView(nodeId);
       });
     }
   }, 100);
@@ -515,6 +509,26 @@ function backToTopology() {
   if (currentDetail) { currentDetail.destroy(); currentDetail = null; }
   if (currentOutput) { currentOutput.destroy(); currentOutput = null; }
   showTopologyView();
+}
+
+let currentReplayTest = null;
+
+async function showReplayTestView(nodeId) {
+  currentView = 'replay-test';
+  if (currentTimeline) { currentTimeline.pause(); currentTimeline.destroy(); currentTimeline = null; }
+  if (currentDetail) { currentDetail.destroy(); currentDetail = null; }
+  if (currentOutput) { currentOutput.destroy(); currentOutput = null; }
+
+  app.innerHTML = '';
+  currentReplayTest = await createReplayTestView(app, {
+    nodeId,
+    topology: sharedTopology,
+    summary: sharedSummary,
+    onBack() {
+      if (currentReplayTest) { currentReplayTest = null; }
+      showDetailView(nodeId);
+    },
+  });
 }
 
 /**
@@ -651,6 +665,7 @@ function cleanupAll() {
   if (currentDetail) { currentDetail.destroy(); currentDetail = null; }
   if (current3DScene) { current3DScene.destroy(); current3DScene = null; }
   if (current3DTopics) { current3DTopics.destroy(); current3DTopics = null; }
+  if (currentReplayTest) { currentReplayTest.destroy(); currentReplayTest = null; }
   sharedSummary = null; sharedTopology = null; sharedStartNs = null; sharedDesignHz = {};
   msgBucketIndex = null; msgTopicOffsets = null; msgTopicFirstSec = null; msgDataCache = null;
   foxgloveChannels = null; foxgloveDataCache = null; foxgloveCursors = {};
