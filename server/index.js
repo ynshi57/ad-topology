@@ -36,6 +36,20 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/ls-lib') {
+    try {
+      const { readdirSync } = await import('fs');
+      const libDir = '/home/caros/cyberrt/lib';
+      const files = readdirSync(libDir).filter(f => f.endsWith('.so'));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(files));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // Proxy endpoint: GET /proxy?url=<encoded_mcap_url>
   if (req.url?.startsWith('/proxy?')) {
     const params = new URL(req.url, `http://localhost:${PORT}`).searchParams;

@@ -1,58 +1,77 @@
 /**
- * Test Panel — configure and run module replay tests via WebSocket to the backend harness.
+ * Replay Test View — full-screen page for module replay testing with real mcap data.
+ * Uses snapshot-based replay: maintains a latest-value buffer per input channel,
+ * calls process() at configurable frame rate with accumulated snapshots.
  */
 
+import nexisConfig from './nexis-config.json';
+
 const WS_URL = 'ws://localhost:8765';
+const DEFAULT_HZ = 20;
+const LIB_DIR = '/home/caros/cyberrt/lib';
+const WORKSPACE = '/home/caros/workspace';
 
-// Map node IDs to likely .so paths and class names based on nexis/cyber conventions
-const MODULE_HINTS = {
-  fault_manager:  { so: 'libsystem_monitor.so', cls: 'FaultManagerExecutor', config: '/home/caros/workspace/ad_dag/conf/fault_process_table.pbtxt', flag: '', src: 'system_monitor' },
-  system_monitor: { so: 'libsystem_monitor.so', cls: 'SystemMonitorComponent', config: '', flag: '', src: 'system_monitor' },
-  neo_canbus:     { so: 'libcanbus_executor.so', cls: 'CanbusExecutor', config: '', flag: '', src: 'canbus' },
-  model_infer:    { so: 'libmodel_infer.so', cls: 'ModelInferExecutor', config: '', flag: '', src: 'model_infer' },
-  map_router:     { so: 'libmaprouter_exector_map_router.so', cls: 'MapRouterExecutor', config: '', flag: '', src: 'maprouter' },
-  planning:       { so: 'libplanning_new.so', cls: 'PlanningComponent', config: '', flag: 'conf/planning.flag', src: 'planning' },
-  control:        { so: 'libcontrol.so', cls: 'ControlComponent', config: 'conf/control.pb.txt', flag: 'conf/control.flag', src: 'control' },
-  aeb:            { so: 'libaeb.so', cls: 'AebComponent', config: '', flag: '', src: 'aeb' },
-  location:       { so: 'libdead_reckoning_localization_component.so', cls: 'DeadReckoningLocalizationComponent', config: '', flag: 'conf/dead_reckoning_localization.flag', src: 'location' },
-  perception:     { so: 'libperception_component.so', cls: 'TrackPredComponent', config: '', flag: '', src: 'perception' },
-  state_machine:  { so: 'libstate_machine.so', cls: 'StateMachineComponent', config: '', flag: '', src: 'finite_state_machine' },
-  dynamic_layer:  { so: 'libdynamic_layer.so', cls: 'DynamicLayerComponent', config: '', flag: '', src: 'dynamic_layer' },
-};
+let cachedSoList = null;
 
-function guessDefaults(nodeId) {
-  const hint = MODULE_HINTS[nodeId];
-  if (hint) {
-    const configs = [];
-    if (hint.config) configs.push(hint.config);
-    if (hint.flag) configs.push(`flag:${hint.flag}`);
-    return {
-      soPath: `/home/caros/cyberrt/lib/${hint.so}`,
-      className: hint.cls,
-      configPaths: configs.join('\n'),
-      buildCmd: hint.src ? `cd /home/caros/workspace/${hint.src} && rm -rf build_x86_64* && bash cross_build.sh x86_64` : '',
-    };
+async function getSoList() {
+  if (cachedSoList) return cachedSoList;
+  try {
+    const resp = await fetch(`http://localhost:8765/ls-lib`);
+    if (resp.ok) {
+      cachedSoList = await resp.json();
+      return cachedSoList;
+    }
+  } catch { /* ignore */ }
+  cachedSoList = [];
+  return cachedSoList;
+}
+
+function guessDefaultsSync(nodeId, soList) {
+  const proc = nexisConfig.processes[nodeId];
+  const runtime = proc?.runtime || 'unknown';
+  const parts = nodeId.split('_');
+  const pascalCase = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+
+  let soPath = `${LIB_DIR}/lib${nodeId}.so`;
+  let className = '';
+
+  if (soList && soList.length > 0) {
+    const kw = nodeId.replace(/_/g, '');
+    const match = soList.find(f =>
+      f.toLowerCase().includes(kw) && (f.includes('exector') || f.includes('executor'))
+    ) || soList.find(f =>
+      f.toLowerCase().includes(kw) && f.includes('component')
+    ) || soList.find(f =>
+      f.toLowerCase().includes(kw)
+    );
+    if (match) soPath = `${LIB_DIR}/${match}`;
   }
+
+  if (runtime === 'nexis') {
+    className = pascalCase + 'Executor';
+  } else if (runtime === 'cyber') {
+    className = pascalCase + 'Component';
+  }
+
   return {
-    soPath: `/home/caros/cyberrt/lib/lib${nodeId}.so`,
-    className: '',
+    soPath,
+    className,
     configPaths: '',
-    buildCmd: '',
+    buildCmd: `cd ${WORKSPACE}/${nodeId} && rm -rf build_x86_64* && bash cross_build.sh x86_64`,
   };
 }
 
 function guessTopics(nodeId, topology, direction) {
   if (!topology) return '';
-  const { nodes, links } = topology;
   const topics = [];
   if (direction === 'sub') {
-    for (const l of links) {
+    for (const l of topology.links) {
       if (l.target === nodeId) {
         for (const t of (l.topics || [])) topics.push(t.topic);
       }
     }
   } else {
-    const node = nodes.find(n => n.id === nodeId);
+    const node = topology.nodes.find(n => n.id === nodeId);
     if (node) {
       for (const t of (node.topics || [])) topics.push(t.topic);
     }
@@ -60,73 +79,302 @@ function guessTopics(nodeId, topology, direction) {
   return [...new Set(topics)].join('\n');
 }
 
-export function createTestPanel(container, opts) {
-  const { nodeId, topology, summary, onClose } = opts;
+function uint8ToBase64(u8) {
+  let binary = '';
+  for (let i = 0; i < u8.byteLength; i++) { binary += String.fromCharCode(u8[i]); }
+  return btoa(binary);
+}
+
+function buildTopicToDataNameMap(nodeId) {
+  const map = new Map();
+  const proc = nexisConfig.processes[nodeId];
+  if (proc) {
+    for (const sub of proc.sub || []) {
+      if (sub.topic && sub.dataName) {
+        map.set(sub.topic, sub.dataName);
+      }
+    }
+  }
+  return map;
+}
+
+function buildTopicToProtoMap(nodeId) {
+  const map = new Map();
+  const proc = nexisConfig.processes[nodeId];
+  if (proc) {
+    for (const sub of proc.sub || []) {
+      if (sub.topic && sub.proto) {
+        map.set(sub.topic, sub.proto);
+      }
+    }
+  }
+  if (nexisConfig.dataTypes) {
+    for (const [name, type] of Object.entries(nexisConfig.dataTypes)) {
+      const proc2 = nexisConfig.processes[nodeId];
+      if (proc2) {
+        for (const sub of proc2.sub || []) {
+          if (sub.dataName === name && type && !map.has(sub.topic)) {
+            map.set(sub.topic, type);
+          }
+        }
+      }
+    }
+  }
+  return map;
+}
+
+function findExecutorFlow(nodeId) {
+  const flows = nexisConfig.executorFlows || {};
+  const kw = nodeId.replace(/_/g, '');
+  for (const [name, flow] of Object.entries(flows)) {
+    const nkw = name.replace(/_/g, '');
+    if (nkw.includes(kw) || kw.includes(nkw.replace('executor', ''))) {
+      return { executorName: name, ...flow };
+    }
+  }
+  return null;
+}
+
+function detectFrameHz(nodeId) {
+  const flow = findExecutorFlow(nodeId);
+  if (flow) return flow.hz;
+  return DEFAULT_HZ;
+}
+
+async function readRawMessages(readers, topics, startNs, endNs) {
+  const msgs = [];
+  const topicSet = new Set(topics);
+  for (const { reader } of readers) {
+    for await (const msg of reader.readMessages({ startTime: startNs, endTime: endNs })) {
+      const ch = reader.channelsById.get(msg.channelId);
+      if (!ch || !topicSet.has(ch.topic)) continue;
+      msgs.push({
+        topic: ch.topic,
+        logTime: msg.logTime,
+        data: new Uint8Array(msg.data),
+      });
+    }
+  }
+  msgs.sort((a, b) => (a.logTime < b.logTime ? -1 : a.logTime > b.logTime ? 1 : 0));
+  return msgs;
+}
+
+/**
+ * @param {HTMLElement} container
+ * @param {object} opts
+ */
+export async function createReplayTestView(container, opts) {
+  const { nodeId, topology, summary, onBack } = opts;
   const nodeData = topology.nodes.find(n => n.id === nodeId);
   const runtime = nodeData?.runtime || 'unknown';
   const runtimeLabel = runtime === 'nexis' ? 'Nexis IExecutor' : runtime === 'cyber' ? 'CyberRT Component' : 'Unknown';
   const runtimeClass = runtime === 'nexis' ? 'rt-nexis' : runtime === 'cyber' ? 'rt-cyber' : 'rt-unknown';
+  const soList = await getSoList();
+  const defaults = guessDefaultsSync(nodeId, soList);
 
   const el = document.createElement('div');
-  el.className = 'tp-overlay';
+  el.className = 'rt-view';
+  el.setAttribute('data-view-name', 'Replay Test');
   el.innerHTML = `
-    <div class="tp-modal" data-view-name="Replay Test">
-      <div class="tp-modal-header">
-        <span class="tp-modal-title">Replay Test: ${esc(nodeId)}</span>
+    <div class="rt-header">
+      <button class="rt-back" id="rt-back">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path d="M19 12H5M12 19l-7-7 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        Back
+      </button>
+      <div class="rt-title">
+        <span class="view-label">Replay Test</span>
+        <span class="rt-node-name">${esc(nodeId)}</span>
         <span class="tp-runtime-badge ${runtimeClass}">${runtimeLabel}</span>
-        <button class="tp-modal-close" id="tp-close">x</button>
       </div>
-      <div class="tp-modal-body">
-        <div class="tp-form">
-          <label class="tp-label">.so Path</label>
-          <input class="tp-input" id="tp-so" value="${esc(guessDefaults(nodeId).soPath)}" />
-          <label class="tp-label">Executor Class Name</label>
-          <input class="tp-input" id="tp-class" value="${esc(guessDefaults(nodeId).className)}" />
-          <label class="tp-label">Config Paths (one per line)</label>
-          <textarea class="tp-textarea" id="tp-config">${esc(guessDefaults(nodeId).configPaths)}</textarea>
-          <label class="tp-label">Build Command (optional — for Rebuild & Test)</label>
-          <input class="tp-input" id="tp-build-cmd" value="${esc(guessDefaults(nodeId).buildCmd)}" />
-          <label class="tp-label">Input Topics (for CyberRT mode, one per line)</label>
-          <textarea class="tp-textarea tp-topics" id="tp-input-topics">${esc(guessTopics(nodeId, topology, 'sub'))}</textarea>
-          <label class="tp-label">Output Topics (for CyberRT mode, one per line)</label>
-          <textarea class="tp-textarea tp-topics" id="tp-output-topics">${esc(guessTopics(nodeId, topology, 'pub'))}</textarea>
+      <div class="rt-meta">
+        <span class="rt-meta-item">${summary.durationSec}s mcap</span>
+        <span class="rt-meta-item">${summary.totalMessages.toLocaleString()} msgs</span>
+      </div>
+    </div>
+    <div class="rt-body">
+      <div class="rt-left">
+        <div class="rt-section">
+          <div class="rt-section-title">Module Configuration</div>
+          <label class="rt-label">.so Path</label>
+          <input class="rt-input" id="rt-so" value="${esc(defaults.soPath)}" />
+          <label class="rt-label">Executor Class Name</label>
+          <input class="rt-input" id="rt-class" value="${esc(defaults.className)}" />
+          <label class="rt-label">Config Paths (one per line)</label>
+          <textarea class="rt-textarea" id="rt-config">${esc(defaults.configPaths)}</textarea>
+          <label class="rt-label">Build Command</label>
+          <input class="rt-input" id="rt-build-cmd" value="${esc(defaults.buildCmd)}" />
         </div>
-        <div class="tp-actions">
-          <button class="tp-run-btn" id="tp-run">Run Test</button>
-          <button class="tp-rebuild-btn" id="tp-rebuild">Rebuild & Test</button>
-          <span class="tp-status" id="tp-status"></span>
+        <div class="rt-section">
+          <div class="rt-section-title">Topics</div>
+          <label class="rt-label">Input Topics</label>
+          <textarea class="rt-textarea rt-topics" id="rt-input-topics">${esc(guessTopics(nodeId, topology, 'sub'))}</textarea>
+          <label class="rt-label">Output Topics</label>
+          <textarea class="rt-textarea rt-topics" id="rt-output-topics">${esc(guessTopics(nodeId, topology, 'pub'))}</textarea>
         </div>
-        <div class="tp-results" id="tp-results">
-          <div class="tp-results-header">Results</div>
-          <div class="tp-results-list" id="tp-results-list"></div>
+        <div class="rt-section">
+          <div class="rt-section-title">Replay Settings</div>
+          <label class="rt-label">Frame Rate (Hz)</label>
+          <select class="rt-select" id="rt-hz">
+            <option value="auto">Auto (${detectFrameHz(nodeId)} Hz)</option>
+            <option value="10">10 Hz</option>
+            <option value="20">20 Hz</option>
+            <option value="50">50 Hz</option>
+            <option value="100">100 Hz</option>
+          </select>
+        </div>
+        <div class="rt-actions">
+          <button class="rt-btn rt-btn-primary" id="rt-run">Run Test</button>
+          <button class="rt-btn rt-btn-rebuild" id="rt-rebuild">Rebuild & Test</button>
+        </div>
+        <div class="rt-progress-area" id="rt-progress-area" style="display:none">
+          <div class="rt-progress-bar"><div class="rt-progress-fill" id="rt-progress-fill"></div></div>
+          <div class="rt-progress-text" id="rt-progress-text">Preparing...</div>
+        </div>
+        <div class="rt-status" id="rt-status"></div>
+      </div>
+      <div class="rt-right">
+        <div class="rt-summary" id="rt-summary" style="display:none">
+          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-frames">0</span><span class="rt-stat-label">Frames</span></div>
+          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-pass">0</span><span class="rt-stat-label">Pass</span></div>
+          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-fail">0</span><span class="rt-stat-label">Fail</span></div>
+          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-avg">-</span><span class="rt-stat-label">Avg ms</span></div>
+          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-max">-</span><span class="rt-stat-label">Max ms</span></div>
+          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-total">-</span><span class="rt-stat-label">Total</span></div>
+        </div>
+        <div class="rt-flamegraph-area" id="rt-flamegraph-area" style="display:none">
+          <div class="rt-section-title">Process Timing
+            <span class="rt-fg-hint">(each bar = one process() call, color = duration)</span>
+          </div>
+          <canvas id="rt-flame-canvas" width="800" height="120"></canvas>
+        </div>
+        <div class="rt-log-area">
+          <div class="rt-section-title">Frame Log</div>
+          <div class="rt-log" id="rt-log"></div>
         </div>
       </div>
     </div>
   `;
   container.appendChild(el);
 
-  const soInput = el.querySelector('#tp-so');
-  const classInput = el.querySelector('#tp-class');
-  const configInput = el.querySelector('#tp-config');
-  const runBtn = el.querySelector('#tp-run');
-  const statusEl = el.querySelector('#tp-status');
-  const resultsList = el.querySelector('#tp-results-list');
+  const soInput = el.querySelector('#rt-so');
+  const classInput = el.querySelector('#rt-class');
+  const configInput = el.querySelector('#rt-config');
+  const buildCmdInput = el.querySelector('#rt-build-cmd');
+  const inputTopicsEl = el.querySelector('#rt-input-topics');
+  const outputTopicsEl = el.querySelector('#rt-output-topics');
+  const statusEl = el.querySelector('#rt-status');
+  const logEl = el.querySelector('#rt-log');
+  const progressArea = el.querySelector('#rt-progress-area');
+  const progressFill = el.querySelector('#rt-progress-fill');
+  const progressText = el.querySelector('#rt-progress-text');
+  const summaryEl = el.querySelector('#rt-summary');
+  const flameArea = el.querySelector('#rt-flamegraph-area');
+  const flameCanvas = el.querySelector('#rt-flame-canvas');
 
-  el.querySelector('#tp-close').addEventListener('click', () => {
-    destroy();
-    if (onClose) onClose();
-  });
+  const hzSelect = el.querySelector('#rt-hz');
+
+  el.querySelector('#rt-back').addEventListener('click', () => { destroy(); if (onBack) onBack(); });
+  el.querySelector('#rt-run').addEventListener('click', () => startTest(false));
+  el.querySelector('#rt-rebuild').addEventListener('click', () => startTest(true));
 
   let ws = null;
-  const buildCmdInput = el.querySelector('#tp-build-cmd');
-  const rebuildBtn = el.querySelector('#tp-rebuild');
-  let pendingBuildThenLoad = false;
+  let allFrameTimes = [];
 
-  function startTest(buildFirst) {
-    statusEl.textContent = 'Connecting...';
-    statusEl.className = 'tp-status';
-    resultsList.innerHTML = '';
-    pendingBuildThenLoad = buildFirst;
+  function getSelectedHz() {
+    const val = hzSelect.value;
+    return val === 'auto' ? detectFrameHz(nodeId) : parseInt(val, 10);
+  }
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = 'rt-status' + (cls ? ' ' + cls : '');
+  }
+
+  function appendLog(level, text) {
+    const row = document.createElement('div');
+    row.className = `rt-log-row ${level}`;
+    row.textContent = text;
+    logEl.appendChild(row);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setProgress(current, total, label) {
+    progressArea.style.display = 'block';
+    const pct = total > 0 ? (current / total * 100) : 0;
+    progressFill.style.width = pct + '%';
+    progressText.textContent = label || `${current} / ${total}`;
+  }
+
+  function updateSummary() {
+    summaryEl.style.display = 'flex';
+    const pass = allFrameTimes.filter(t => t.ok).length;
+    const fail = allFrameTimes.length - pass;
+    const times = allFrameTimes.map(t => t.ms);
+    const avg = times.length ? (times.reduce((a, b) => a + b, 0) / times.length) : 0;
+    const max = times.length ? Math.max(...times) : 0;
+    const total = times.reduce((a, b) => a + b, 0);
+
+    el.querySelector('#rt-stat-frames').textContent = allFrameTimes.length;
+    el.querySelector('#rt-stat-pass').textContent = pass;
+    el.querySelector('#rt-stat-pass').parentElement.className = 'rt-stat' + (pass > 0 ? ' ok' : '');
+    el.querySelector('#rt-stat-fail').textContent = fail;
+    el.querySelector('#rt-stat-fail').parentElement.className = 'rt-stat' + (fail > 0 ? ' fail' : '');
+    el.querySelector('#rt-stat-avg').textContent = avg.toFixed(2);
+    el.querySelector('#rt-stat-max').textContent = max.toFixed(2);
+    el.querySelector('#rt-stat-total').textContent = (total / 1000).toFixed(2) + 's';
+  }
+
+  function renderFlameGraph() {
+    if (allFrameTimes.length === 0) return;
+    flameArea.style.display = 'block';
+    const canvas = flameCanvas;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.parentElement.clientWidth - 16;
+    const h = 100;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    const maxMs = Math.max(...allFrameTimes.map(t => t.ms), 1);
+    const barW = Math.max(1, (w - 2) / allFrameTimes.length);
+
+    for (let i = 0; i < allFrameTimes.length; i++) {
+      const t = allFrameTimes[i];
+      const barH = Math.max(2, (t.ms / maxMs) * (h - 20));
+      const x = i * barW;
+      const y = h - 10 - barH;
+
+      const ratio = Math.min(t.ms / maxMs, 1);
+      if (!t.ok) {
+        ctx.fillStyle = '#ef4444';
+      } else if (ratio < 0.3) {
+        ctx.fillStyle = '#10b981';
+      } else if (ratio < 0.7) {
+        ctx.fillStyle = '#f59e0b';
+      } else {
+        ctx.fillStyle = '#ef4444';
+      }
+      ctx.fillRect(x + 0.5, y, Math.max(1, barW - 1), barH);
+    }
+
+    ctx.fillStyle = '#666';
+    ctx.font = '9px Inter, sans-serif';
+    ctx.fillText(`0ms`, 2, h - 1);
+    ctx.fillText(`${maxMs.toFixed(1)}ms`, 2, 12);
+    ctx.fillText(`${allFrameTimes.length} frames`, w - 60, h - 1);
+  }
+
+  async function startTest(buildFirst) {
+    setStatus('Connecting...', '');
+    logEl.innerHTML = '';
+    allFrameTimes = [];
+    summaryEl.style.display = 'none';
+    flameArea.style.display = 'none';
+    progressArea.style.display = 'none';
 
     ws = new WebSocket(WS_URL);
 
@@ -134,14 +382,13 @@ export function createTestPanel(container, opts) {
       if (buildFirst) {
         const buildCmd = buildCmdInput.value.trim();
         if (!buildCmd) {
-          statusEl.textContent = 'No build command configured';
-          statusEl.className = 'tp-status error';
-          appendResult('error', 'Set a build command first');
+          setStatus('No build command configured', 'error');
+          appendLog('error', 'Set a build command first');
           ws.close();
           return;
         }
-        statusEl.textContent = 'Building...';
-        appendResult('info', `Building: ${buildCmd}`);
+        setStatus('Building...', '');
+        appendLog('info', `Building: ${buildCmd}`);
         ws.send(JSON.stringify({ cmd: 'build', command: buildCmd }));
       } else {
         sendLoadCommand();
@@ -152,21 +399,21 @@ export function createTestPanel(container, opts) {
       const msg = JSON.parse(event.data);
 
       if (msg.status === 'ready') {
-        appendResult('info', 'Harness ready');
+        appendLog('info', 'Harness ready');
         return;
       }
 
+      if (msg.type === 'build_output') return;
+
       if (msg.cmd === 'build_result') {
         if (msg.success) {
-          statusEl.textContent = 'Build succeeded. Loading module...';
-          appendResult('ok', `Build succeeded (${(msg.duration_ms / 1000).toFixed(1)}s)`);
-          if (msg.stdout) appendResult('info', msg.stdout.slice(0, 500));
+          setStatus('Build succeeded. Loading module...', '');
+          appendLog('ok', `Build succeeded (${(msg.duration_ms / 1000).toFixed(1)}s)`);
           sendLoadCommand();
         } else {
-          statusEl.textContent = 'Build failed';
-          statusEl.className = 'tp-status error';
-          appendResult('error', `Build failed: ${msg.error}`);
-          if (msg.stderr) appendResult('error', msg.stderr.slice(0, 1000));
+          setStatus('Build failed', 'error');
+          appendLog('error', `Build failed: ${msg.error}`);
+          if (msg.stderr) appendLog('error', msg.stderr.slice(0, 1000));
         }
         return;
       }
@@ -174,88 +421,67 @@ export function createTestPanel(container, opts) {
       if (msg.cmd === 'load_result') {
         if (msg.success) {
           const modeLabel = msg.mode === 'executor' ? 'Nexis IExecutor' : msg.mode === 'cyber' ? 'CyberRT Component' : msg.mode;
-          statusEl.textContent = `Loaded (${modeLabel}). Running test...`;
-          statusEl.className = 'tp-status ok';
-          appendResult('ok', `Module loaded as ${modeLabel}`);
-          if (msg.message) appendResult('info', msg.message);
-          sendTestFrames();
+          setStatus(`Loaded (${modeLabel}). Reading mcap data...`, 'ok');
+          appendLog('ok', `Loaded as ${modeLabel}`);
+          beginReplay(msg.mode);
         } else {
-          statusEl.textContent = 'Load failed';
-          statusEl.className = 'tp-status error';
-          appendResult('error', `Load failed: ${msg.error}`);
+          setStatus('Load failed', 'error');
+          appendLog('error', `Load failed: ${msg.error}`);
         }
         return;
       }
 
       if (msg.cmd === 'process_result') {
-        const mode = msg.mode || 'executor';
-        for (const r of msg.results || []) {
-          if (mode === 'cyber') {
-            const captured = r.captured ? Object.keys(r.captured).map(k => `${k}:${r.captured[k]?.captured_count || 0}`).join(', ') : '';
-            appendResult(r.status === 'ok' ? 'ok' : 'error',
-              `[${(r.timestamp_ns / 1e9).toFixed(3)}s] ${r.topic || ''} ${r.status} (${r.elapsed_ms?.toFixed(2) || 0}ms)${captured ? ' | captured: ' + captured : ''}${r.error ? ' — ' + r.error : ''}`);
-          } else {
-            const level = (r.status_code === 1 || r.status === 'kProcessOk') ? 'ok' : 'error';
-            appendResult(level, `[${(r.timestamp_ns / 1e9).toFixed(3)}s] ${r.status} (${r.process_time_ms?.toFixed(2) || 0}ms)${r.error ? ' — ' + r.error : ''}`);
-          }
-        }
-        statusEl.textContent = `Processed ${(msg.results || []).length} frames (${msg.mode || 'unknown'} mode)`;
-
-        ws.send(JSON.stringify({ cmd: 'unload' }));
-        ws.send(JSON.stringify({ cmd: 'quit' }));
+        handleProcessResults(msg);
         return;
       }
 
       if (msg.cmd === 'inject_result') {
-        const captured = msg.captured ? Object.keys(msg.captured).map(k => `${k}:${msg.captured[k]?.captured_count || 0}`).join(', ') : '';
-        appendResult(msg.status === 'ok' ? 'ok' : 'error',
-          `[inject] ${msg.status} (${msg.elapsed_ms?.toFixed(2) || 0}ms)${captured ? ' | captured: ' + captured : ''}${msg.error ? ' — ' + msg.error : ''}`);
+        handleInjectResult(msg);
         return;
       }
 
       if (msg.type === 'harness_exit') {
-        statusEl.textContent = 'Test complete';
-        statusEl.className = 'tp-status ok';
-        appendResult('info', `Harness exited (code=${msg.code})`);
+        setStatus('Test complete', 'ok');
+        appendLog('info', `Harness exited (code=${msg.code})`);
+        progressArea.style.display = 'none';
+        updateSummary();
+        renderFlameGraph();
         return;
       }
 
       if (msg.type === 'stderr') {
-        appendResult('warn', `[stderr] ${msg.message}`);
+        const text = msg.message || '';
+        if (text.includes('] I') || text.includes('] W')) {
+          appendLog('info', `[module] ${text}`);
+        } else {
+          appendLog('warn', `[stderr] ${text}`);
+        }
         return;
       }
 
       if (msg.error) {
-        appendResult('error', msg.error);
+        appendLog('error', msg.error);
       }
     };
 
     ws.onerror = () => {
-      statusEl.textContent = 'WebSocket error — is the server running? (npm run server)';
-      statusEl.className = 'tp-status error';
+      setStatus('WebSocket error — is the server running?', 'error');
     };
-
-    ws.onclose = () => {
-      ws = null;
-    };
+    ws.onclose = () => { ws = null; };
   }
-
-  const inputTopicsEl = el.querySelector('#tp-input-topics');
-  const outputTopicsEl = el.querySelector('#tp-output-topics');
 
   function sendLoadCommand() {
     const lines = configInput.value.trim().split('\n').filter(l => l.trim());
     const configPaths = [];
     let flagPath = '';
     for (const line of lines) {
-      if (line.startsWith('flag:')) {
-        flagPath = line.slice(5).trim();
-      } else {
-        configPaths.push(line.trim());
-      }
+      if (line.startsWith('flag:')) { flagPath = line.slice(5).trim(); }
+      else { configPaths.push(line.trim()); }
     }
     const inputTopics = inputTopicsEl.value.trim().split('\n').filter(l => l.trim());
     const outputTopics = outputTopicsEl.value.trim().split('\n').filter(l => l.trim());
+    setStatus('Loading module...', '');
     ws.send(JSON.stringify({
       cmd: 'load',
       so_path: soInput.value.trim(),
@@ -268,34 +494,173 @@ export function createTestPanel(container, opts) {
     }));
   }
 
-  runBtn.addEventListener('click', () => startTest(false));
-  rebuildBtn.addEventListener('click', () => startTest(true));
+  let pendingResolve = null;
+  let replayMode = 'executor';
 
-  function sendTestFrames() {
-    // Build minimal test frames from mcap data for this node's input topics
-    const frames = [];
-    // For now, send empty frames to test the pipeline
-    frames.push({
-      timestamp_ns: 1000000000,
-      inputs: [{
-        name: 'test_input',
-        timestamp_ns: 1000000000,
-        data_base64: '',
-      }],
-    });
-
-    ws.send(JSON.stringify({
-      cmd: 'process',
-      frames: frames,
-    }));
+  function handleProcessResults(msg) {
+    for (const r of msg.results || []) {
+      const ok = (r.status_code === 1 || r.status === 'kProcessOk');
+      const ms = r.process_time_ms || 0;
+      allFrameTimes.push({ ok, ms, ts: r.timestamp_ns });
+      const level = ok ? 'ok' : 'error';
+      const tsLabel = r.timestamp_ns ? `[${(r.timestamp_ns / 1e9).toFixed(3)}s]` : '';
+      appendLog(level, `${tsLabel} ${r.status} (${ms.toFixed(2)}ms)${r.error ? ' — ' + r.error : ''}`);
+    }
+    updateSummary();
+    if (pendingResolve) { pendingResolve(); pendingResolve = null; }
   }
 
-  function appendResult(level, text) {
-    const row = document.createElement('div');
-    row.className = `tp-result-row ${level}`;
-    row.textContent = text;
-    resultsList.appendChild(row);
-    resultsList.scrollTop = resultsList.scrollHeight;
+  function handleInjectResult(msg) {
+    const ok = msg.status === 'ok';
+    const ms = msg.elapsed_ms || 0;
+    allFrameTimes.push({ ok, ms, ts: msg.timestamp_ns });
+    const level = ok ? 'ok' : 'error';
+    appendLog(level, `[inject] ${msg.topic || ''} ${msg.status} (${ms.toFixed(2)}ms)`);
+    updateSummary();
+    if (pendingResolve) { pendingResolve(); pendingResolve = null; }
+  }
+
+  function waitForResponse() {
+    return new Promise(resolve => { pendingResolve = resolve; });
+  }
+
+  async function beginReplay(mode) {
+    replayMode = mode;
+    const inputTopics = inputTopicsEl.value.trim().split('\n').filter(l => l.trim());
+    if (inputTopics.length === 0) {
+      appendLog('warn', 'No input topics — sending empty test frame');
+      ws.send(JSON.stringify({ cmd: 'process', frames: [{ timestamp_ns: 1000000000, inputs: [{ name: 'test', timestamp_ns: 1000000000, data_base64: '' }] }] }));
+      return;
+    }
+
+    setStatus('Reading mcap messages...', '');
+    setProgress(0, 1, 'Reading mcap...');
+
+    const rawMsgs = await readRawMessages(summary.readers, inputTopics, summary.startTimeNs, summary.endTimeNs);
+    if (rawMsgs.length === 0) {
+      appendLog('warn', 'No messages found for input topics in mcap');
+      ws.send(JSON.stringify({ cmd: 'unload' }));
+      ws.send(JSON.stringify({ cmd: 'quit' }));
+      return;
+    }
+
+    appendLog('info', `Found ${rawMsgs.length} messages across ${inputTopics.length} input topics`);
+    setStatus(`Replaying ${rawMsgs.length} messages...`, '');
+
+    if (mode === 'executor') {
+      await replayExecutorMode(rawMsgs);
+    } else {
+      await replayCyberMode(rawMsgs);
+    }
+
+    ws.send(JSON.stringify({ cmd: 'unload' }));
+    ws.send(JSON.stringify({ cmd: 'quit' }));
+  }
+
+  async function replayExecutorMode(rawMsgs) {
+    const topicToDataName = buildTopicToDataNameMap(nodeId);
+    const topicToProto = buildTopicToProtoMap(nodeId);
+    const flow = findExecutorFlow(nodeId);
+    const hz = getSelectedHz();
+    const intervalNs = BigInt(Math.floor(1e9 / hz));
+    const allRequiredFromFlow = flow?.requiredInputs || [];
+    const availableDataNames = new Set();
+    for (const msg of rawMsgs) {
+      const dn = topicToDataName.get(msg.topic);
+      if (dn) availableDataNames.add(dn);
+    }
+    const requiredSet = new Set(allRequiredFromFlow.filter(r => availableDataNames.has(r)));
+    const missingRequired = allRequiredFromFlow.filter(r => !availableDataNames.has(r));
+
+    const startTime = rawMsgs[0].logTime;
+    const endTime = rawMsgs[rawMsgs.length - 1].logTime;
+    const totalTicks = Number((endTime - startTime) / intervalNs) + 1;
+
+    const scheduleMode = requiredSet.size > 0 ? 'event-triggered' : 'periodic';
+    appendLog('info', `Schedule: ${scheduleMode}, ${hz}Hz interval`);
+    appendLog('info', `Time range: ${(Number(endTime - startTime) / 1e9).toFixed(2)}s, ~${totalTicks} ticks max`);
+    appendLog('info', `Required (in mcap): ${requiredSet.size > 0 ? [...requiredSet].join(', ') : 'none'}`);
+    if (missingRequired.length > 0) {
+      appendLog('warn', `Required but NOT in mcap (skipped): ${missingRequired.join(', ')}`);
+    }
+    appendLog('info', `Available data channels: ${availableDataNames.size}`);
+
+    const latestValues = new Map();
+    const arrivedSinceLastTick = new Set();
+    let msgCursor = 0;
+    let tickTime = startTime;
+    let frameIdx = 0;
+    let skipped = 0;
+
+    while (tickTime <= endTime) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) break;
+
+      arrivedSinceLastTick.clear();
+      while (msgCursor < rawMsgs.length && rawMsgs[msgCursor].logTime <= tickTime) {
+        const msg = rawMsgs[msgCursor];
+        const dataName = topicToDataName.get(msg.topic) || msg.topic.split('/').pop() || msg.topic;
+        const protoType = topicToProto.get(msg.topic) || '';
+        latestValues.set(dataName, { data: msg.data, ts: msg.logTime, protoType });
+        arrivedSinceLastTick.add(dataName);
+        msgCursor++;
+      }
+
+      let shouldProcess = latestValues.size > 0;
+      if (requiredSet.size > 0) {
+        let allRequired = true;
+        for (const req of requiredSet) {
+          if (!latestValues.has(req)) { allRequired = false; break; }
+        }
+        shouldProcess = allRequired;
+      }
+
+      if (shouldProcess) {
+        const inputs = [];
+        for (const [name, val] of latestValues) {
+          inputs.push({
+            name,
+            timestamp_ns: Number(val.ts),
+            data_base64: uint8ToBase64(val.data),
+            proto_type: val.protoType || '',
+          });
+        }
+
+        ws.send(JSON.stringify({
+          cmd: 'process',
+          frames: [{ timestamp_ns: Number(tickTime), inputs }],
+        }));
+        await waitForResponse();
+        frameIdx++;
+        const elapsed = (Number(tickTime - startTime) / 1e9).toFixed(2);
+        setProgress(frameIdx, totalTicks, `Frame ${frameIdx} (${elapsed}s) | ${inputs.length} inputs | ${skipped} skipped`);
+        if (frameIdx % 10 === 0) renderFlameGraph();
+      } else {
+        skipped++;
+      }
+
+      tickTime = tickTime + intervalNs;
+    }
+
+    setProgress(totalTicks, totalTicks, `Done: ${frameIdx} processed, ${skipped} skipped`);
+    appendLog('info', `Replay complete: ${frameIdx} frames processed, ${skipped} ticks skipped (required triggers not met)`);
+    renderFlameGraph();
+  }
+
+  async function replayCyberMode(rawMsgs) {
+    for (let i = 0; i < rawMsgs.length; i++) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) break;
+      const msg = rawMsgs[i];
+      setProgress(i + 1, rawMsgs.length, `Injecting ${i + 1} / ${rawMsgs.length}`);
+      ws.send(JSON.stringify({
+        cmd: 'inject',
+        topic: msg.topic,
+        timestamp_ns: Number(msg.logTime),
+        data_base64: uint8ToBase64(msg.data),
+      }));
+      await waitForResponse();
+      if ((i + 1) % 50 === 0) renderFlameGraph();
+    }
+    setProgress(rawMsgs.length, rawMsgs.length, 'Complete');
   }
 
   function destroy() {

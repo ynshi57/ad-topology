@@ -1,9 +1,15 @@
 #include "executor_harness.h"
 
 #include <chrono>
+#include <csignal>
 #include <dlfcn.h>
 #include <iostream>
 #include <sstream>
+
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/descriptor_database.h>
+#include <google/protobuf/dynamic_message.h>
+#include <google/protobuf/message.h>
 
 #include "task/executor/executor.hpp"
 #include "core/class_factory.hpp"
@@ -96,14 +102,41 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
 
     auto* executor = static_cast<task::IExecutor*>(_executor);
 
-    // Build InputDataType
+    std::vector<std::unique_ptr<google::protobuf::Message>> deserializedMsgs;
+
     task::IExecutor::InputDataType inputMap;
     for (size_t i = 0; i < inputs.size(); ++i) {
         task::IExecutor::InputData id;
         id.name = inputs[i].dataName;
-        id.data = inputs[i].protoData.data();
         id.timestamp_ns = inputs[i].timestampNs;
         id.trigger = (i == 0);
+
+        if (!inputs[i].protoType.empty() && !inputs[i].protoData.empty()) {
+            auto* pool = google::protobuf::DescriptorPool::generated_pool();
+            auto* desc = pool->FindMessageTypeByName(inputs[i].protoType);
+            if (desc) {
+                auto* factory = google::protobuf::MessageFactory::generated_factory();
+                auto* prototype = factory->GetPrototype(desc);
+                if (prototype) {
+                    auto msg = std::unique_ptr<google::protobuf::Message>(prototype->New());
+                    if (msg->ParseFromArray(inputs[i].protoData.data(), static_cast<int>(inputs[i].protoData.size()))) {
+                        id.data = msg.get();
+                        deserializedMsgs.push_back(std::move(msg));
+                    } else {
+                        std::cerr << "[Harness] Failed to parse proto for " << inputs[i].dataName
+                                  << " (type: " << inputs[i].protoType << ", size: " << inputs[i].protoData.size() << ")" << std::endl;
+                        id.data = nullptr;
+                    }
+                } else {
+                    id.data = nullptr;
+                }
+            } else {
+                id.data = inputs[i].protoData.data();
+            }
+        } else {
+            id.data = inputs[i].protoData.empty() ? nullptr : inputs[i].protoData.data();
+        }
+
         inputMap.emplace(static_cast<ID>(i), std::move(id));
     }
 
