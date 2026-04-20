@@ -33,30 +33,47 @@ function guessDefaultsSync(nodeId, soList) {
   const pascalCase = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
 
   let soPath = `${LIB_DIR}/lib${nodeId}.so`;
-  let className = '';
+  let className = runtime === 'nexis' ? pascalCase + 'Executor'
+    : runtime === 'cyber' ? pascalCase + 'Component' : '';
+  let configPaths = '';
 
-  if (soList && soList.length > 0) {
+  const tasks = nexisConfig.executorTasks || {};
+  let taskEntry = tasks[className];
+
+  if (!taskEntry) {
+    const kw = nodeId.replace(/_/g, '').toLowerCase();
+    for (const [cls, info] of Object.entries(tasks)) {
+      const clsLower = cls.replace(/Executor$|Component$|NexisExecutor$/i, '').toLowerCase().replace(/_/g, '');
+      const srcLower = (info.sourceFile || '').replace('.pbtxt', '').replace(/_/g, '').toLowerCase();
+      const taskLower = (info.taskName || '').replace(/_/g, '').toLowerCase();
+      if (clsLower.includes(kw) || kw.includes(clsLower)
+          || srcLower.includes(kw) || taskLower.includes(kw)) {
+        taskEntry = info;
+        className = cls;
+        break;
+      }
+    }
+  }
+
+  if (taskEntry) {
+    soPath = `${LIB_DIR}/${taskEntry.libName}`;
+    if (taskEntry.cfgFiles?.length > 0) {
+      configPaths = taskEntry.cfgFiles.join('\n');
+    }
+  } else if (soList?.length > 0) {
     const kw = nodeId.replace(/_/g, '');
     const match = soList.find(f =>
       f.toLowerCase().includes(kw) && (f.includes('exector') || f.includes('executor'))
     ) || soList.find(f =>
       f.toLowerCase().includes(kw) && f.includes('component')
-    ) || soList.find(f =>
-      f.toLowerCase().includes(kw)
-    );
+    ) || soList.find(f => f.toLowerCase().includes(kw));
     if (match) soPath = `${LIB_DIR}/${match}`;
-  }
-
-  if (runtime === 'nexis') {
-    className = pascalCase + 'Executor';
-  } else if (runtime === 'cyber') {
-    className = pascalCase + 'Component';
   }
 
   return {
     soPath,
     className,
-    configPaths: '',
+    configPaths,
     buildCmd: `cd ${WORKSPACE}/${nodeId} && rm -rf build_x86_64* && bash cross_build.sh x86_64`,
   };
 }
@@ -70,10 +87,22 @@ function guessTopics(nodeId, topology, direction) {
         for (const t of (l.topics || [])) topics.push(t.topic);
       }
     }
+    const proc = nexisConfig.processes[nodeId];
+    if (proc) {
+      for (const s of proc.sub || []) {
+        if (s.topic && !topics.includes(s.topic)) topics.push(s.topic);
+      }
+    }
   } else {
     const node = topology.nodes.find(n => n.id === nodeId);
     if (node) {
       for (const t of (node.topics || [])) topics.push(t.topic);
+    }
+    const proc = nexisConfig.processes[nodeId];
+    if (proc) {
+      for (const p of proc.pub || []) {
+        if (p.topic && !topics.includes(p.topic)) topics.push(p.topic);
+      }
     }
   }
   return [...new Set(topics)].join('\n');
@@ -148,10 +177,13 @@ async function readRawMessages(readers, topics, startNs, endNs) {
     for await (const msg of reader.readMessages({ startTime: startNs, endTime: endNs })) {
       const ch = reader.channelsById.get(msg.channelId);
       if (!ch || !topicSet.has(ch.topic)) continue;
+      const schema = reader.schemasById.get(ch.schemaId);
       msgs.push({
         topic: ch.topic,
         logTime: msg.logTime,
         data: new Uint8Array(msg.data),
+        schemaName: schema?.name || '',
+        schemaEncoding: schema?.encoding || '',
       });
     }
   }
@@ -481,6 +513,8 @@ export async function createReplayTestView(container, opts) {
     }
     const inputTopics = inputTopicsEl.value.trim().split('\n').filter(l => l.trim());
     const outputTopics = outputTopicsEl.value.trim().split('\n').filter(l => l.trim());
+    const proc = nexisConfig.processes[nodeId];
+    const outputDataNames = (proc?.pub || []).map(p => p.dataName || p.topic.split('/').pop()).filter(Boolean);
     setStatus('Loading module...', '');
     ws.send(JSON.stringify({
       cmd: 'load',
@@ -490,6 +524,7 @@ export async function createReplayTestView(container, opts) {
       flag_path: flagPath,
       input_topics: inputTopics,
       output_topics: outputTopics,
+      output_data_names: outputDataNames,
       runtime,
     }));
   }
@@ -502,9 +537,11 @@ export async function createReplayTestView(container, opts) {
       const ok = (r.status_code === 1 || r.status === 'kProcessOk');
       const ms = r.process_time_ms || 0;
       allFrameTimes.push({ ok, ms, ts: r.timestamp_ns });
-      const level = ok ? 'ok' : 'error';
+      const level = ok ? 'ok' : (r.status === 'kSkipped' ? 'warn' : 'error');
       const tsLabel = r.timestamp_ns ? `[${(r.timestamp_ns / 1e9).toFixed(3)}s]` : '';
-      appendLog(level, `${tsLabel} ${r.status} (${ms.toFixed(2)}ms)${r.error ? ' — ' + r.error : ''}`);
+      const deser = r.output?._deser;
+      const deserInfo = deser ? ` [${deser.ok}/${deser.total} deserialized]` : '';
+      appendLog(level, `${tsLabel} ${r.status} (${ms.toFixed(2)}ms)${deserInfo}${r.error ? ' — ' + r.error : ''}`);
     }
     updateSummary();
     if (pendingResolve) { pendingResolve(); pendingResolve = null; }
@@ -584,6 +621,12 @@ export async function createReplayTestView(container, opts) {
       appendLog('warn', `Required but NOT in mcap (skipped): ${missingRequired.join(', ')}`);
     }
     appendLog('info', `Available data channels: ${availableDataNames.size}`);
+    const nonProtoTopics = rawMsgs.filter(m => m.schemaEncoding && m.schemaEncoding !== 'protobuf')
+      .map(m => topicToDataName.get(m.topic) || m.topic);
+    const uniqueNonProto = [...new Set(nonProtoTopics)];
+    if (uniqueNonProto.length > 0) {
+      appendLog('warn', `Non-protobuf encoding (skipped): ${uniqueNonProto.join(', ')}`);
+    }
 
     const latestValues = new Map();
     const arrivedSinceLastTick = new Set();
@@ -599,8 +642,11 @@ export async function createReplayTestView(container, opts) {
       while (msgCursor < rawMsgs.length && rawMsgs[msgCursor].logTime <= tickTime) {
         const msg = rawMsgs[msgCursor];
         const dataName = topicToDataName.get(msg.topic) || msg.topic.split('/').pop() || msg.topic;
-        const protoType = topicToProto.get(msg.topic) || '';
-        latestValues.set(dataName, { data: msg.data, ts: msg.logTime, protoType });
+        const encoding = msg.schemaEncoding || 'protobuf';
+        const protoType = encoding === 'protobuf'
+          ? (topicToProto.get(msg.topic) || msg.schemaName || '')
+          : (topicToProto.get(msg.topic) || '');
+        latestValues.set(dataName, { data: msg.data, ts: msg.logTime, protoType, encoding });
         arrivedSinceLastTick.add(dataName);
         msgCursor++;
       }
@@ -617,11 +663,13 @@ export async function createReplayTestView(container, opts) {
       if (shouldProcess) {
         const inputs = [];
         for (const [name, val] of latestValues) {
+          if (val.encoding && val.encoding !== 'protobuf') { continue; }
+          if (!val.protoType) { continue; }
           inputs.push({
             name,
             timestamp_ns: Number(val.ts),
             data_base64: uint8ToBase64(val.data),
-            proto_type: val.protoType || '',
+            proto_type: val.protoType,
           });
         }
 

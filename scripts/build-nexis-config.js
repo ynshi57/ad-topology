@@ -317,6 +317,47 @@ function parseFlowFiles(flowDir) {
 }
 
 // ========================================================================
+// 5. Parse task.d — executor task definitions (so, class, config)
+// ========================================================================
+
+const NEXIS_TASK = join(WORKSPACE, 'ad_dag/config/nexis/resource/task.d');
+
+function parseTaskFiles(taskDir) {
+  const executorTasks = {};
+  if (!existsSync(taskDir)) return executorTasks;
+
+  for (const file of readdirSync(taskDir).filter(f => f.endsWith('.pbtxt'))) {
+    const content = readFileSync(join(taskDir, file), 'utf8');
+    const taskBlocks = [...content.matchAll(/\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g)];
+
+    for (const block of taskBlocks) {
+      const body = block[1];
+      const nameMatch = body.match(/name\s*:\s*"([^"]+)"/);
+      const classMatch = body.match(/class_name\s*:\s*"([^"]+)"/);
+      const libMatch = body.match(/lib_name\s*:\s*"([^"]+)"/);
+      const cfgMatches = [...body.matchAll(/cfg_file\s*:\s*"([^"]+)"/g)];
+      const typeMatch = body.match(/type\s*:\s*"([^"]+)"/);
+
+      if (!classMatch || !libMatch) continue;
+      const taskType = typeMatch?.[1] || '';
+      if (taskType === 'capture' || taskType === 'emitter') continue;
+
+      const className = classMatch[1];
+      const libName = libMatch[1];
+      const cfgFiles = cfgMatches.map(m => m[1]);
+
+      executorTasks[className] = {
+        taskName: nameMatch?.[1] || '',
+        libName,
+        cfgFiles,
+        sourceFile: file,
+      };
+    }
+  }
+  return executorTasks;
+}
+
+// ========================================================================
 // Main
 // ========================================================================
 
@@ -330,10 +371,13 @@ const processes = {};
 const topicToPublisher = {};
 const topicToSubscribers = {};
 
-function addPub(proc, topic, proto) {
+function addPub(proc, topic, proto, dataName) {
   if (!processes[proc]) processes[proc] = { domain: 'system', layer: 5, runtime: 'unknown', pub: [], sub: [] };
-  if (!processes[proc].pub.find(p => p.topic === topic)) {
-    processes[proc].pub.push({ topic, proto: proto || '' });
+  const existing = processes[proc].pub.find(p => p.topic === topic);
+  if (!existing) {
+    processes[proc].pub.push({ topic, proto: proto || '', dataName: dataName || topic.split('/').pop() || topic });
+  } else if (dataName && !existing.dataName) {
+    existing.dataName = dataName;
   }
   topicToPublisher[topic] = proc;
 }
@@ -366,7 +410,7 @@ if (existsSync(NEXIS_DEPLOY)) {
     for (const b of blocks) {
       if (!b.topic) continue;
       const proto = dataTypes[b.name] || '';
-      if (b.direction === 'pub') addPub(proc, b.topic, proto);
+      if (b.direction === 'pub') addPub(proc, b.topic, proto, b.name);
       else addSub(proc, b.topic, proto, b.name);
     }
   }
@@ -402,6 +446,13 @@ for (const [name, flow] of Object.entries(executorFlows)) {
   console.log(`    ${name}: ${flow.hz}Hz, ${flow.requiredInputs.length} required, ${flow.optionalInputs.length} optional`);
 }
 
-const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows };
+// --- Parse task definitions ---
+const executorTasks = parseTaskFiles(NEXIS_TASK);
+console.log(`  ${Object.keys(executorTasks).length} executor task definitions`);
+for (const [cls, task] of Object.entries(executorTasks)) {
+  console.log(`    ${cls}: ${task.libName} cfg=[${task.cfgFiles.join(', ')}]`);
+}
+
+const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows, executorTasks };
 writeFileSync(OUTPUT, JSON.stringify(config, null, 2));
 console.log(`\nWritten to ${OUTPUT}`);

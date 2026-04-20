@@ -111,11 +111,17 @@ int main(int argc, char** argv) {
                 outputTopics.push_back(t.asString());
             }
 
+            std::vector<std::string> outputDataNames;
+            for (const auto& n : cmd["output_data_names"]) {
+                outputDataNames.push_back(n.asString());
+            }
+
             auto tryExecutor = [&](std::string& errOut) -> bool {
                 harness::HarnessConfig cfg;
                 cfg.soPath = soPath;
                 cfg.executorClass = className;
                 cfg.configPaths = configPaths;
+                cfg.outputDataNames = outputDataNames;
                 return execHarness.loadModule(cfg, errOut);
             };
 

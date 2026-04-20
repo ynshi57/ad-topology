@@ -36,6 +36,20 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/rebuild-config') {
+    try {
+      const { execSync } = await import('child_process');
+      const scriptPath = join(__dirname, '..', 'scripts', 'build-nexis-config.js');
+      const output = execSync(`node ${scriptPath}`, { cwd: join(__dirname, '..'), timeout: 15000 }).toString();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, output }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+    return;
+  }
+
   if (req.url === '/ls-lib') {
     try {
       const { readdirSync } = await import('fs');

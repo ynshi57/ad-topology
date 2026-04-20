@@ -256,13 +256,14 @@ function showTopologyView() {
       </div>
       <div class="controls">
         <button class="btn ${show3D ? 'active' : ''}" id="btn-3d">3D</button>
+        <button class="btn" id="btn-refresh-config">Refresh Config</button>
         <button class="btn" id="btn-reset">Reset</button>
         <button class="btn" id="btn-new">New File</button>
       </div>
     </div>
     <div class="main-area">
       <div class="scene-topics-area" id="scene-topics-area" style="display:${show3D ? 'flex' : 'none'}"></div>
-      <div class="graph-area" id="graph-area"></div>
+      <div class="graph-area" id="graph-area" style="display:${show3D ? 'none' : 'block'}"></div>
       <div class="scene-3d-area" id="scene-3d-area" style="display:${show3D ? 'block' : 'none'}"></div>
       <div class="panel-area" id="panel-area" style="display:${show3D ? 'none' : 'flex'}"></div>
     </div>
@@ -291,6 +292,7 @@ function showTopologyView() {
     show3D = !show3D;
     document.getElementById('btn-3d').classList.toggle('active', show3D);
     document.getElementById('scene-topics-area').style.display = show3D ? 'flex' : 'none';
+    document.getElementById('graph-area').style.display = show3D ? 'none' : 'block';
     document.getElementById('scene-3d-area').style.display = show3D ? 'block' : 'none';
     document.getElementById('panel-area').style.display = show3D ? 'none' : 'flex';
     if (show3D && !current3DScene) setup3DPanel();
@@ -315,6 +317,27 @@ function showTopologyView() {
     });
   }
 
+  document.getElementById('btn-refresh-config').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-refresh-config');
+    btn.textContent = 'Refreshing...';
+    btn.disabled = true;
+    try {
+      const resp = await fetch('http://localhost:8765/rebuild-config');
+      const result = await resp.json();
+      if (result.ok) {
+        btn.textContent = 'Done! Reload page';
+        setTimeout(() => location.reload(), 1000);
+      } else {
+        btn.textContent = 'Failed';
+        console.error(result.error);
+        setTimeout(() => { btn.textContent = 'Refresh Config'; btn.disabled = false; }, 2000);
+      }
+    } catch (e) {
+      btn.textContent = 'Error';
+      console.error(e);
+      setTimeout(() => { btn.textContent = 'Refresh Config'; btn.disabled = false; }, 2000);
+    }
+  });
   document.getElementById('btn-reset').addEventListener('click', () => {
     currentGraph.resetView();
     if (current3DScene) current3DScene.resetCamera();

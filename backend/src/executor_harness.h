@@ -12,6 +12,7 @@ struct HarnessConfig {
     std::string soPath;
     std::string executorClass;
     std::vector<std::string> configPaths;
+    std::vector<std::string> outputDataNames;
 };
 
 struct FrameInput {
@@ -51,6 +52,7 @@ private:
     void* _executor = nullptr;
     void* _destroyFn = nullptr;
     bool _initialized = false;
+    std::vector<std::string> _outputDataNames;
 };
 
 } // namespace harness
