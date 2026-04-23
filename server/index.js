@@ -7,11 +7,18 @@
 import { WebSocketServer } from 'ws';
 import { spawn } from 'child_process';
 import { createServer } from 'http';
-import { dirname, join } from 'path';
+import { dirname, join, resolve as pathResolve, isAbsolute, basename } from 'path';
+import { existsSync, statSync, readFileSync, createReadStream } from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HARNESS_BIN = join(__dirname, '..', 'backend', 'build', 'executor_harness');
+const RECORD2MCAP_BIN_CANDIDATES = [
+  // Combined backend build (CMake add_subdirectory layout).
+  join(__dirname, '..', 'backend', 'build', 'record2mcap', 'record2mcap'),
+  // Stand-alone record2mcap build directory.
+  join(__dirname, '..', 'backend', 'record2mcap', 'build', 'record2mcap'),
+];
 const PORT = parseInt(process.env.WS_PORT || '8765');
 
 const ENV = {
@@ -61,6 +68,16 @@ const httpServer = createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
     }
+    return;
+  }
+
+  if (req.url === '/record2mcap' && req.method === 'POST') {
+    await handleRecordToMcap(req, res);
+    return;
+  }
+
+  if ((req.url === '/file' || req.url?.startsWith('/file?')) && req.method === 'GET') {
+    handleFileDownload(req, res);
     return;
   }
 
@@ -250,6 +267,275 @@ function handleBuild(ws, command) {
       error: err.message,
       duration_ms: Date.now() - startMs,
     }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Read-only file download endpoint (only serves .mcap / .mcap.report.json
+// for the record2mcap round-trip).
+// ---------------------------------------------------------------------------
+
+function handleFileDownload(req, res) {
+  try {
+    const params = new URL(req.url, `http://localhost:${PORT}`).searchParams;
+    const requested = params.get('path');
+    if (!requested) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'path parameter required' }));
+      return;
+    }
+    if (!isAbsolute(requested)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'path must be absolute' }));
+      return;
+    }
+    const resolved = pathResolve(requested);
+    const isMcap = resolved.toLowerCase().endsWith('.mcap');
+    const isReport = resolved.toLowerCase().endsWith('.mcap.report.json');
+    if (!isMcap && !isReport) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: 'only .mcap and .mcap.report.json files may be served',
+      }));
+      return;
+    }
+    if (!existsSync(resolved) || !statSync(resolved).isFile()) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `file not found: ${resolved}` }));
+      return;
+    }
+    const stat = statSync(resolved);
+    const contentType = isReport ? 'application/json'
+                                 : 'application/octet-stream';
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': stat.size,
+      'Content-Disposition': `attachment; filename="${basename(resolved)}"`,
+      'Cache-Control': 'no-cache',
+    });
+    const stream = createReadStream(resolved);
+    stream.pipe(res);
+    stream.on('error', (err) => {
+      console.error('[file] stream error:', err.message);
+      if (!res.writableEnded) {
+        res.end();
+      }
+    });
+  } catch (err) {
+    console.error('[file] error:', err.message);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// record2mcap endpoint
+// ---------------------------------------------------------------------------
+
+function findRecord2McapBin() {
+  for (const candidate of RECORD2MCAP_BIN_CANDIDATES) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function deriveMcapOutputPath(inputPath) {
+  // Accepts `<x>.record`, `<x>.record.NNNNN`, `<x>.record.NNNNN.MMMMM` etc.
+  // Produces `<x>.mcap` in the same directory, dropping every `.record[.NNNNN...]`
+  // trailing segment.
+  const match = inputPath.match(/^(.*?)\.record(?:\.\d+)*$/);
+  if (match) {
+    return `${match[1]}.mcap`;
+  }
+  return `${inputPath}.mcap`;
+}
+
+function writeJsonLine(res, obj) {
+  res.write(JSON.stringify(obj) + '\n');
+}
+
+async function handleRecordToMcap(req, res) {
+  // Collect request body (JSON).
+  let body = '';
+  try {
+    for await (const chunk of req) {
+      body += chunk.toString();
+      if (body.length > 1024 * 1024) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body too large' }));
+        return;
+      }
+    }
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Failed to read body: ${err.message}` }));
+    return;
+  }
+
+  let payload;
+  try {
+    payload = body ? JSON.parse(body) : {};
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Invalid JSON body: ${err.message}` }));
+    return;
+  }
+
+  const inputPathRaw = payload.inputPath;
+  if (typeof inputPathRaw !== 'string' || !inputPathRaw) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'inputPath is required' }));
+    return;
+  }
+  if (!isAbsolute(inputPathRaw)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'inputPath must be absolute' }));
+    return;
+  }
+  const inputPath = pathResolve(inputPathRaw);
+  if (!existsSync(inputPath) || !statSync(inputPath).isFile()) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Input not found: ${inputPath}` }));
+    return;
+  }
+
+  const bin = findRecord2McapBin();
+  if (!bin) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'record2mcap binary not built',
+      hint: 'Run `cmake -S ad-topology/backend -B ad-topology/backend/build && make -C ad-topology/backend/build -j`',
+      searched: RECORD2MCAP_BIN_CANDIDATES,
+    }));
+    return;
+  }
+
+  const outputPath = typeof payload.outputPath === 'string' && payload.outputPath
+    ? pathResolve(payload.outputPath)
+    : deriveMcapOutputPath(inputPath);
+  const reportPath = typeof payload.reportPath === 'string' && payload.reportPath
+    ? pathResolve(payload.reportPath)
+    : `${outputPath}.report.json`;
+  const overwrite = payload.overwrite === true;
+
+  if (!overwrite && existsSync(outputPath)) {
+    res.writeHead(409, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: `Output already exists: ${outputPath}`,
+      hint: 'Pass overwrite=true in the JSON body to replace it.',
+    }));
+    return;
+  }
+
+  const args = [inputPath, outputPath];
+  const compression = payload.compression;
+  if (compression && ['none', 'zstd', 'lz4'].includes(compression)) {
+    args.push('--compression', compression);
+  }
+  if (Array.isArray(payload.include) && payload.include.length > 0) {
+    args.push('--include', payload.include.join(','));
+  }
+  if (Array.isArray(payload.exclude) && payload.exclude.length > 0) {
+    args.push('--exclude', payload.exclude.join(','));
+  }
+  if (payload.verify === true) {
+    args.push('--verify');
+    if (Number.isFinite(payload.verifySamples)) {
+      args.push('--verify-samples', String(payload.verifySamples));
+    }
+  }
+  args.push('--report', reportPath);
+
+  console.log('[record2mcap] spawn:', bin, args.join(' '));
+
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    'X-Accel-Buffering': 'no',
+  });
+  writeJsonLine(res, {
+    type: 'start',
+    binary: bin,
+    inputPath,
+    outputPath,
+    reportPath,
+    args,
+  });
+
+  let child;
+  try {
+    child = spawn(bin, args, { env: ENV, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    writeJsonLine(res, { type: 'done', ok: false, error: err.message });
+    res.end();
+    return;
+  }
+
+  let killed = false;
+  const onClientClose = () => {
+    killed = true;
+    if (child && !child.killed) {
+      child.kill('SIGTERM');
+    }
+  };
+  req.on('close', onClientClose);
+
+  const streamLines = (stream, label) => {
+    let buf = '';
+    stream.on('data', (chunk) => {
+      buf += chunk.toString();
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (line.length > 0) {
+          writeJsonLine(res, { type: 'log', stream: label, line });
+        }
+      }
+    });
+    stream.on('end', () => {
+      if (buf.length > 0) {
+        writeJsonLine(res, { type: 'log', stream: label, line: buf });
+      }
+    });
+  };
+  streamLines(child.stdout, 'stdout');
+  streamLines(child.stderr, 'stderr');
+
+  child.on('error', (err) => {
+    writeJsonLine(res, { type: 'done', ok: false, error: err.message });
+    res.end();
+  });
+
+  child.on('close', (code, signal) => {
+    req.removeListener('close', onClientClose);
+    let report = null;
+    if (existsSync(reportPath)) {
+      try {
+        report = JSON.parse(readFileSync(reportPath, 'utf8'));
+      } catch (err) {
+        writeJsonLine(res, {
+          type: 'log',
+          stream: 'stderr',
+          line: `failed to read report: ${err.message}`,
+        });
+      }
+    }
+    writeJsonLine(res, {
+      type: 'done',
+      ok: code === 0 && !killed,
+      killed,
+      exitCode: code,
+      signal,
+      inputPath,
+      outputPath,
+      reportPath,
+      outputExists: existsSync(outputPath),
+      outputSizeBytes: existsSync(outputPath) ? statSync(outputPath).size : 0,
+      report,
+    });
+    res.end();
   });
 }
 

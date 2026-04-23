@@ -14,6 +14,7 @@
 #include "task/executor/executor.hpp"
 #include "core/class_factory.hpp"
 #include "common/facilities.h"
+#include "common/facilities_inl.hpp"
 
 using namespace neolix::nexis;
 
@@ -144,7 +145,12 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
         if (fi.protoData.empty()) { emptyData++; continue; }
         if (fi.protoType.empty()) { noProtoType++; continue; }
 
-        ID dataId = NXFacility.generator(fi.dataName);
+        // Register the data name with the framework's Facility singleton so
+        // that NXFacility.idata(name) inside the loaded executor returns a
+        // matching ID for our inputMap entry. push() is idempotent and a
+        // no-op (returns 0) if the name is already registered.
+        cmn::FacilityInl<cmn::Data>::Instance().push(fi.dataName);
+        ID dataId = NXFacility.idata(fi.dataName);
         if (ID_IS_INVALID(dataId)) { continue; }
 
         const google::protobuf::Message* msgPtr = nullptr;
@@ -216,7 +222,10 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
         task::IExecutor::OutputData od;
         od.name = oname;
         od.data = outputBuffers.back().data();
-        ID oid = NXFacility.generator(oname);
+        // Same registration story as inputs above; use idata() for the key
+        // so the executor can find the slot via NXFacility.idata(name).
+        cmn::FacilityInl<cmn::Data>::Instance().push(oname);
+        ID oid = NXFacility.idata(oname);
         outputMap.emplace(oid, std::move(od));
     }
 

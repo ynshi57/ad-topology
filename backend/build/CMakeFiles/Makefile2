@@ -64,6 +64,7 @@ CMAKE_BINARY_DIR = /home/caros/workspace/ad-topology/backend/build
 
 # The main recursive "all" target.
 all: CMakeFiles/executor_harness.dir/all
+all: CMakeFiles/record2mcap_all.dir/all
 .PHONY : all
 
 # The main recursive "preinstall" target.
@@ -72,7 +73,24 @@ preinstall:
 
 # The main recursive "clean" target.
 clean: CMakeFiles/executor_harness.dir/clean
+clean: CMakeFiles/record2mcap_all.dir/clean
+clean: record2mcap/clean
 .PHONY : clean
+
+#=============================================================================
+# Directory level rules for directory record2mcap
+
+# Recursive "all" directory target.
+record2mcap/all: record2mcap/CMakeFiles/record2mcap.dir/all
+.PHONY : record2mcap/all
+
+# Recursive "preinstall" directory target.
+record2mcap/preinstall:
+.PHONY : record2mcap/preinstall
+
+# Recursive "clean" directory target.
+record2mcap/clean: record2mcap/CMakeFiles/record2mcap.dir/clean
+.PHONY : record2mcap/clean
 
 #=============================================================================
 # Target rules for target CMakeFiles/executor_harness.dir
@@ -99,6 +117,58 @@ executor_harness: CMakeFiles/executor_harness.dir/rule
 CMakeFiles/executor_harness.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/executor_harness.dir/build.make CMakeFiles/executor_harness.dir/clean
 .PHONY : CMakeFiles/executor_harness.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/record2mcap_all.dir
+
+# All Build rule for target.
+CMakeFiles/record2mcap_all.dir/all: record2mcap/CMakeFiles/record2mcap.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_all.dir/build.make CMakeFiles/record2mcap_all.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_all.dir/build.make CMakeFiles/record2mcap_all.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/caros/workspace/ad-topology/backend/build/CMakeFiles --progress-num= "Built target record2mcap_all"
+.PHONY : CMakeFiles/record2mcap_all.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/record2mcap_all.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 4
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/record2mcap_all.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 0
+.PHONY : CMakeFiles/record2mcap_all.dir/rule
+
+# Convenience name for target.
+record2mcap_all: CMakeFiles/record2mcap_all.dir/rule
+.PHONY : record2mcap_all
+
+# clean rule for target.
+CMakeFiles/record2mcap_all.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_all.dir/build.make CMakeFiles/record2mcap_all.dir/clean
+.PHONY : CMakeFiles/record2mcap_all.dir/clean
+
+#=============================================================================
+# Target rules for target record2mcap/CMakeFiles/record2mcap.dir
+
+# All Build rule for target.
+record2mcap/CMakeFiles/record2mcap.dir/all:
+	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/depend
+	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/caros/workspace/ad-topology/backend/build/CMakeFiles --progress-num=5,6,7,8 "Built target record2mcap"
+.PHONY : record2mcap/CMakeFiles/record2mcap.dir/all
+
+# Build rule for subdir invocation for target.
+record2mcap/CMakeFiles/record2mcap.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 4
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 record2mcap/CMakeFiles/record2mcap.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 0
+.PHONY : record2mcap/CMakeFiles/record2mcap.dir/rule
+
+# Convenience name for target.
+record2mcap: record2mcap/CMakeFiles/record2mcap.dir/rule
+.PHONY : record2mcap
+
+# clean rule for target.
+record2mcap/CMakeFiles/record2mcap.dir/clean:
+	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/clean
+.PHONY : record2mcap/CMakeFiles/record2mcap.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

@@ -50,6 +50,91 @@ checkUrlParams();
  * Parse mcap URLs from a viz.data.neolix.cn URL or direct mcap URL(s).
  * Extracts ds.url parameters which contain S3-signed mcap file URLs.
  */
+/**
+ * Calls the backend /record2mcap endpoint with an absolute server path.
+ * Streams NDJSON progress events and resolves with { outputPath, filename, sizeMB }
+ * once the converter exits successfully.
+ * @param {string} recordPath Absolute path on the server.
+ * @param {{verify?: boolean, overwrite?: boolean, onLog?: (line: string) => void}} opts
+ */
+async function convertRecordOnServer(recordPath, opts = {}) {
+  const { verify = false, overwrite = true, onLog = () => {} } = opts;
+  const resp = await fetch('http://localhost:8765/record2mcap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      inputPath: recordPath,
+      verify,
+      verifySamples: verify ? 50 : 0,
+      overwrite,
+    }),
+  });
+
+  if (!resp.ok || !resp.body) {
+    const errText = await resp.text().catch(() => '');
+    let msg = `/record2mcap responded ${resp.status}`;
+    try {
+      const parsed = JSON.parse(errText);
+      if (parsed.error) msg = parsed.error;
+      if (parsed.hint) msg += ` (${parsed.hint})`;
+    } catch {
+      if (errText) msg = errText;
+    }
+    throw new Error(msg);
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let doneEvent = null;
+  let lastError = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split(/\r?\n/);
+    buf = lines.pop() || '';
+    for (const line of lines) {
+      if (!line) continue;
+      let evt;
+      try {
+        evt = JSON.parse(line);
+      } catch {
+        onLog(line);
+        continue;
+      }
+      if (evt.type === 'start') {
+        onLog(`converter: ${evt.binary}`);
+        onLog(`args: ${Array.isArray(evt.args) ? evt.args.join(' ') : ''}`);
+        onLog(`output: ${evt.outputPath}`);
+      } else if (evt.type === 'log') {
+        onLog(`[${evt.stream}] ${evt.line}`);
+      } else if (evt.type === 'done') {
+        doneEvent = evt;
+        if (!evt.ok) {
+          lastError = evt.error || `record2mcap exited with code ${evt.exitCode}`;
+        }
+      }
+    }
+  }
+
+  if (!doneEvent) {
+    throw new Error('record2mcap stream ended before emitting a done event');
+  }
+  if (lastError) {
+    throw new Error(lastError);
+  }
+  if (!doneEvent.outputExists) {
+    throw new Error('record2mcap finished but output file is missing');
+  }
+
+  const outputPath = doneEvent.outputPath;
+  const filename = outputPath.split('/').pop();
+  const sizeMB = (Number(doneEvent.outputSizeBytes || 0) / (1024 * 1024)).toFixed(1);
+  return { outputPath, filename, sizeMB, report: doneEvent.report };
+}
+
 function parseMcapUrls(input) {
   const urls = [];
 
@@ -140,6 +225,21 @@ function showDropZone() {
           <input class="dz-url-input" id="dz-url" placeholder="Paste viz.data.neolix.cn URL or mcap URL..." />
           <button class="dz-url-btn" id="dz-url-load">Load URL</button>
         </div>
+        <div class="dz-url-wrap dz-record-wrap">
+          <input class="dz-url-input" id="dz-record-path" placeholder="Server path: .record (convert + load) or .mcap (load directly)" />
+          <button class="dz-url-btn" id="dz-record-load">Load</button>
+        </div>
+        <div class="dz-record-opts">
+          <label class="dz-record-opt">
+            <input type="checkbox" id="dz-record-verify" />
+            <span>verify (sample-check 50, record only)</span>
+          </label>
+          <label class="dz-record-opt">
+            <input type="checkbox" id="dz-record-overwrite" checked />
+            <span>overwrite existing mcap (record only)</span>
+          </label>
+        </div>
+        <pre class="dz-record-log" id="dz-record-log" style="display:none"></pre>
         <div class="dz-hint"><span class="dz-sample" id="dz-sample">Load sample from workspace</span></div>
       </div>
     </div>
@@ -195,6 +295,62 @@ function showDropZone() {
     } catch (err) {
       console.error('URL load error:', err);
       app.innerHTML = `<div class="loading"><p style="color:#ef4444">URL load error: ${err.message}</p><button class="dz-btn" onclick="location.reload()">Retry</button></div>`;
+    }
+  });
+
+  document.getElementById('dz-record-load').addEventListener('click', async () => {
+    const inputPathRaw = document.getElementById('dz-record-path').value.trim();
+    if (!inputPathRaw) {
+      return;
+    }
+    const verify = document.getElementById('dz-record-verify').checked;
+    const overwrite = document.getElementById('dz-record-overwrite').checked;
+    const logEl = document.getElementById('dz-record-log');
+    const btn = document.getElementById('dz-record-load');
+    logEl.style.display = 'block';
+    logEl.textContent = '';
+    btn.disabled = true;
+
+    const appendLog = (line) => {
+      logEl.textContent += line + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    const isAlreadyMcap = inputPathRaw.toLowerCase().endsWith('.mcap');
+
+    try {
+      let mcapPath;
+      let filename;
+      if (isAlreadyMcap) {
+        appendLog(`loading existing mcap: ${inputPathRaw}`);
+        mcapPath = inputPathRaw;
+        filename = inputPathRaw.split('/').pop() || 'remote.mcap';
+      } else {
+        const converted = await convertRecordOnServer(inputPathRaw, {
+          verify,
+          overwrite,
+          onLog: appendLog,
+        });
+        appendLog(`downloading ${converted.filename} (${converted.sizeMB} MB)...`);
+        mcapPath = converted.outputPath;
+        filename = converted.filename;
+      }
+
+      const fileResp = await fetch(
+        `http://localhost:8765/file?path=${encodeURIComponent(mcapPath)}`,
+      );
+      if (!fileResp.ok) {
+        const errText = await fileResp.text().catch(() => '');
+        throw new Error(`fetch mcap failed: ${fileResp.status} ${errText}`);
+      }
+      const blob = await fileResp.blob();
+      appendLog(`downloaded ${blob.size.toLocaleString()} bytes, parsing mcap...`);
+      const file = new File([blob], filename, { type: 'application/octet-stream' });
+      await handleFiles([file]);
+    } catch (err) {
+      console.error('Load error:', err);
+      appendLog(`\nERROR: ${err.message}`);
+      btn.disabled = false;
     }
   });
 
@@ -585,6 +741,11 @@ function pushCachedMessages(currentSec) {
     while (cursor < cache.length && cache[cursor].sec <= currentSec && pushed < 5) {
       const entry = cache[cursor];
       if (entry.sec > fromSec) {
+        if (entry.decoded === undefined) {
+          entry.decoded = entry.schemaId
+            ? decodeMessage(entry.schemaId, entry.data)
+            : null;
+        }
         currentDetail.pushMessage(topic, entry.sec, entry.decoded, entry.size);
         pushed++;
       }
@@ -603,7 +764,7 @@ async function buildMessageIndex(summary, onProgress) {
   const total = summary.totalMessages;
   const buckets = {};
   const topicTsArrays = {};  // topic -> number[] (relative seconds)
-  const topicMsgData = {};   // topic -> [{sec, data, schemaId, channelId}]
+  const topicMsgData = {};   // topic -> [{sec, schemaId, data, size, decoded}]
   let count = 0;
   let lastYield = performance.now();
 
@@ -623,13 +784,18 @@ async function buildMessageIndex(summary, onProgress) {
       if (!topicTsArrays[topic]) topicTsArrays[topic] = [];
       topicTsArrays[topic].push(relSec);
 
-      // Cache message data for detail view decoding
+      // Cache raw bytes. Decoding is deferred to first access from the detail
+      // view (see `pushCachedMessages`) so that heavy payloads such as H264
+      // VideoStream frames do not pay protobuf-decode cost for topics the
+      // user never inspects. Shaves tens of seconds off index build for
+      // record-converted mcaps that contain many camera streams.
       if (!topicMsgData[topic]) topicMsgData[topic] = [];
-      const decoded = channel.schemaId ? decodeMessage(channel.schemaId, msg.data) : null;
       topicMsgData[topic].push({
         sec: relSec,
-        decoded,
+        schemaId: channel.schemaId,
+        data: msg.data,
         size: msg.data.byteLength,
+        decoded: undefined,
       });
 
       count++;
@@ -660,16 +826,19 @@ async function buildMessageIndex(summary, onProgress) {
   msgBucketIndex = buckets;
   msgDataCache = topicMsgData;
 
-  // Build foxglove 3D data cache from decoded messages
+  // Foxglove topics drive the 3D scene every tick, so decode eagerly up
+  // front. Record-converted mcaps typically contain no foxglove topics, in
+  // which case this loop is a no-op.
   foxgloveDataCache = {};
   for (const [topic, msgs] of Object.entries(topicMsgData)) {
     const ch = sharedSummary.channels.find(c => c.topic === topic);
     if (!ch || !ch.schemaName?.startsWith('foxglove.')) continue;
-    foxgloveDataCache[topic] = msgs.map(m => ({
-      sec: m.sec,
-      decoded: m.decoded,
-      schema: ch.schemaName,
-    }));
+    foxgloveDataCache[topic] = msgs.map(m => {
+      if (m.decoded === undefined) {
+        m.decoded = m.schemaId ? decodeMessage(m.schemaId, m.data) : null;
+      }
+      return { sec: m.sec, decoded: m.decoded, schema: ch.schemaName };
+    });
   }
 
   console.log(`Index: ${count} msgs, ${Object.keys(buckets).length} buckets, ${Object.keys(msgTopicOffsets).length} topics`);

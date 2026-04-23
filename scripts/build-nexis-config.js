@@ -8,7 +8,7 @@
  * Output: nexis-config.json with complete topic→publisher and topic→subscribers mapping.
  */
 
-import { readdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -322,6 +322,61 @@ function parseFlowFiles(flowDir) {
 
 const NEXIS_TASK = join(WORKSPACE, 'ad_dag/config/nexis/resource/task.d');
 
+// Base directories to search when resolving a relative cfg_file path. Order
+// matters: production deployment first, then source-tree mirrors so we catch
+// modules whose configs live next to their code. Add new bases here if a
+// module ships configs under a non-standard prefix.
+const CFG_RESOLUTION_BASES = (() => {
+  const bases = [
+    '/home/caros/cyberrt',
+    '/home/caros/cyberrt/conf',
+    '/home/caros/x86_64/opt',
+    '/home/caros/adu',
+    '/home/caros',
+    WORKSPACE,
+  ];
+  // Each first-level workspace subdirectory is also a valid base, since many
+  // modules carry their own conf/ and config/ trees that task.d entries
+  // reference with a `conf/...` or `config/...` relative path.
+  if (existsSync(WORKSPACE)) {
+    for (const entry of readdirSync(WORKSPACE)) {
+      const candidate = join(WORKSPACE, entry);
+      try {
+        if (statSync(candidate).isDirectory()) {
+          bases.push(candidate);
+        }
+      } catch {
+        // ignore unreadable entries
+      }
+    }
+  }
+  return bases;
+})();
+
+const cfgResolutionWarnings = [];
+
+function resolveCfgFile(rawPath) {
+  if (!rawPath) return rawPath;
+  // Already absolute and present? leave as-is. Absolute but missing? still
+  // leave it (don't silently rewrite a value the user explicitly authored).
+  if (rawPath.startsWith('/')) {
+    if (!existsSync(rawPath)) {
+      cfgResolutionWarnings.push(`absolute cfg_file missing on disk: ${rawPath}`);
+    }
+    return rawPath;
+  }
+  for (const base of CFG_RESOLUTION_BASES) {
+    const candidate = join(base, rawPath);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  cfgResolutionWarnings.push(
+    `could not resolve relative cfg_file '${rawPath}' under ${CFG_RESOLUTION_BASES.join(', ')}`,
+  );
+  return rawPath;
+}
+
 function parseTaskFiles(taskDir) {
   const executorTasks = {};
   if (!existsSync(taskDir)) return executorTasks;
@@ -344,7 +399,7 @@ function parseTaskFiles(taskDir) {
 
       const className = classMatch[1];
       const libName = libMatch[1];
-      const cfgFiles = cfgMatches.map(m => m[1]);
+      const cfgFiles = cfgMatches.map(m => resolveCfgFile(m[1]));
 
       executorTasks[className] = {
         taskName: nameMatch?.[1] || '',
@@ -451,6 +506,12 @@ const executorTasks = parseTaskFiles(NEXIS_TASK);
 console.log(`  ${Object.keys(executorTasks).length} executor task definitions`);
 for (const [cls, task] of Object.entries(executorTasks)) {
   console.log(`    ${cls}: ${task.libName} cfg=[${task.cfgFiles.join(', ')}]`);
+}
+if (cfgResolutionWarnings.length > 0) {
+  console.log(`  ${cfgResolutionWarnings.length} cfg_file resolution warning(s):`);
+  for (const w of cfgResolutionWarnings) {
+    console.log(`    WARN: ${w}`);
+  }
 }
 
 const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows, executorTasks };

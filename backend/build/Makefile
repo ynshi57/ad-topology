@@ -129,6 +129,32 @@ executor_harness/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/executor_harness.dir/build.make CMakeFiles/executor_harness.dir/build
 .PHONY : executor_harness/fast
 
+#=============================================================================
+# Target rules for targets named record2mcap_all
+
+# Build rule for target.
+record2mcap_all: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 record2mcap_all
+.PHONY : record2mcap_all
+
+# fast build rule for target.
+record2mcap_all/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_all.dir/build.make CMakeFiles/record2mcap_all.dir/build
+.PHONY : record2mcap_all/fast
+
+#=============================================================================
+# Target rules for targets named record2mcap
+
+# Build rule for target.
+record2mcap: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 record2mcap
+.PHONY : record2mcap
+
+# fast build rule for target.
+record2mcap/fast:
+	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/build
+.PHONY : record2mcap/fast
+
 src/cyber_harness.o: src/cyber_harness.cpp.o
 .PHONY : src/cyber_harness.o
 
@@ -209,7 +235,9 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... record2mcap_all"
 	@echo "... executor_harness"
+	@echo "... record2mcap"
 	@echo "... src/cyber_harness.o"
 	@echo "... src/cyber_harness.i"
 	@echo "... src/cyber_harness.s"

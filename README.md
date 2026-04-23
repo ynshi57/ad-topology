@@ -54,7 +54,26 @@ cd ad-topology/backend
 mkdir -p build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Debug
 make -j4
+# 产物：build/executor_harness 和 build/record2mcap/record2mcap
 ```
+
+### 方式四：把 Apollo `.record` 文件离线转换成 `.mcap`
+
+Apollo Cyber Record 不能被浏览器直接解析，需要先用工程自带的离线 CLI
+`record2mcap` 无损转成 `.mcap`，然后再走 UI 的 mcap 流程。
+
+```bash
+cd ad-topology/backend/record2mcap
+mkdir -p build && cd build
+cmake ..
+make -j
+# 使用（带校验）
+./record2mcap /path/to/xxx.record.00000 /tmp/xxx.mcap --verify
+# 然后打开 http://localhost:5173/ 并把 /tmp/xxx.mcap 拖进页面
+```
+
+转换器承诺 timestamp / proto schema / message bytes 全部 byte-for-byte 保留，
+详见 [backend/record2mcap/README.md](backend/record2mcap/README.md)。
 
 ## 功能
 
@@ -162,10 +181,11 @@ ad-topology/
 │   └── index.js                  # Node.js WS 服务 + URL 代理 + C++ harness 桥接
 ├── backend/
 │   ├── CMakeLists.txt            # C++ 构建
-│   └── src/
-│       ├── main.cpp              # 双模式 harness 入口
-│       ├── executor_harness.*    # Nexis IExecutor 加载
-│       └── cyber_harness.*       # CyberRT Component 加载
+│   ├── src/
+│   │   ├── main.cpp              # 双模式 harness 入口
+│   │   ├── executor_harness.*    # Nexis IExecutor 加载
+│   │   └── cyber_harness.*       # CyberRT Component 加载
+│   └── record2mcap/              # 离线 record → mcap 无损转换 CLI
 ├── scripts/
 │   └── build-nexis-config.js     # nexis pbtxt → JSON 预处理
 ├── docs/
