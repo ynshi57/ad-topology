@@ -22,6 +22,23 @@ struct FrameInput {
     std::vector<uint8_t> protoData;
 };
 
+struct InputMetric {
+    std::string name;
+    std::string protoType;
+    uint64_t timestampNs = 0;
+    uint64_t dataSize = 0;
+    bool idValid = false;
+    bool deserialized = false;
+    std::string skipReason;
+};
+
+struct OutputMetric {
+    std::string name;
+    uint64_t timestampNs = 0;
+    uint64_t dataSize = 0;
+    bool nonEmpty = false;
+};
+
 struct FrameResult {
     uint64_t timestampNs;
     int statusCode;
@@ -29,6 +46,8 @@ struct FrameResult {
     std::string errorMsg;
     Json::Value outputJson;
     double processTimeMs;
+    std::vector<InputMetric> inputMetrics;
+    std::vector<OutputMetric> outputMetrics;
 };
 
 /**

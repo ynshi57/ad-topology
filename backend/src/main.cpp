@@ -229,6 +229,32 @@ int main(int argc, char** argv) {
                 r["process_time_ms"] = result.processTimeMs;
                 if (!result.errorMsg.empty()) { r["error"] = result.errorMsg; }
                 r["output"] = result.outputJson;
+
+                Json::Value inputMetrics(Json::arrayValue);
+                for (const auto& im : result.inputMetrics) {
+                    Json::Value entry;
+                    entry["name"] = im.name;
+                    entry["proto_type"] = im.protoType;
+                    entry["timestamp_ns"] = Json::Value::UInt64(im.timestampNs);
+                    entry["data_size"] = Json::Value::UInt64(im.dataSize);
+                    entry["id_valid"] = im.idValid;
+                    entry["deserialized"] = im.deserialized;
+                    if (!im.skipReason.empty()) { entry["skip_reason"] = im.skipReason; }
+                    inputMetrics.append(entry);
+                }
+                r["input_metrics"] = inputMetrics;
+
+                Json::Value outputMetrics(Json::arrayValue);
+                for (const auto& om : result.outputMetrics) {
+                    Json::Value entry;
+                    entry["name"] = om.name;
+                    entry["timestamp_ns"] = Json::Value::UInt64(om.timestampNs);
+                    entry["data_size"] = Json::Value::UInt64(om.dataSize);
+                    entry["non_empty"] = om.nonEmpty;
+                    outputMetrics.append(entry);
+                }
+                r["output_metrics"] = outputMetrics;
+
                 resp["results"].append(r);
             }
             writeResponse(resp);

@@ -137,38 +137,47 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
 
     for (const auto& fi : inputs) {
         totalInputs++;
+        InputMetric im;
+        im.name = fi.dataName;
+        im.protoType = fi.protoType;
+        im.timestampNs = fi.timestampNs;
+        im.dataSize = fi.protoData.size();
+
         if (frameCount <= 2) {
             std::cerr << "[Frame" << frameCount << "] input: " << fi.dataName
                       << " type=" << (fi.protoType.empty() ? "(empty)" : fi.protoType)
                       << " data=" << fi.protoData.size() << "B" << std::endl;
         }
-        if (fi.protoData.empty()) { emptyData++; continue; }
-        if (fi.protoType.empty()) { noProtoType++; continue; }
+        if (fi.protoData.empty()) { emptyData++; im.skipReason = "empty_data"; result.inputMetrics.push_back(std::move(im)); continue; }
+        if (fi.protoType.empty()) { noProtoType++; im.skipReason = "no_proto_type"; result.inputMetrics.push_back(std::move(im)); continue; }
 
-        // Register the data name with the framework's Facility singleton so
-        // that NXFacility.idata(name) inside the loaded executor returns a
-        // matching ID for our inputMap entry. push() is idempotent and a
-        // no-op (returns 0) if the name is already registered.
         cmn::FacilityInl<cmn::Data>::Instance().push(fi.dataName);
         ID dataId = NXFacility.idata(fi.dataName);
-        if (ID_IS_INVALID(dataId)) { continue; }
+        im.idValid = !ID_IS_INVALID(dataId);
+        if (ID_IS_INVALID(dataId)) { im.skipReason = "invalid_id"; result.inputMetrics.push_back(std::move(im)); continue; }
 
         const google::protobuf::Message* msgPtr = nullptr;
         auto* pool = google::protobuf::DescriptorPool::generated_pool();
         auto* desc = pool->FindMessageTypeByName(fi.protoType);
-        if (!desc) { noDescriptor++; continue; }
+        if (!desc) { noDescriptor++; im.skipReason = "no_descriptor"; result.inputMetrics.push_back(std::move(im)); continue; }
 
         auto* factory = google::protobuf::MessageFactory::generated_factory();
         auto* prototype = factory->GetPrototype(desc);
-        if (!prototype) { noDescriptor++; continue; }
+        if (!prototype) { noDescriptor++; im.skipReason = "no_prototype"; result.inputMetrics.push_back(std::move(im)); continue; }
 
         auto msg = std::unique_ptr<google::protobuf::Message>(prototype->New());
         if (!msg->ParseFromArray(fi.protoData.data(), static_cast<int>(fi.protoData.size()))) {
             parseFailed++;
+            im.skipReason = "parse_failed";
             std::cerr << "[Harness] ParseFromArray failed: " << fi.dataName
                       << " (" << fi.protoType << ", " << fi.protoData.size() << "B)" << std::endl;
+            result.inputMetrics.push_back(std::move(im));
             continue;
         }
+
+        im.deserialized = true;
+        im.idValid = true;
+        result.inputMetrics.push_back(std::move(im));
 
         msgPtr = msg.get();
         deserializedMsgs.push_back(std::move(msg));
@@ -262,6 +271,16 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
             outEntry["timestamp_ns"] = Json::Value::UInt64(od.timestamp_ns);
             outEntry["has_data"] = (od.data != nullptr);
             result.outputJson[od.name] = outEntry;
+
+            OutputMetric om;
+            om.name = od.name;
+            om.timestampNs = od.timestamp_ns;
+            om.nonEmpty = (od.data != nullptr && od.timestamp_ns != 0);
+            // od.data is a raw uint8_t buffer, not a protobuf Message pointer.
+            // We cannot call ByteSizeLong() on it. Use timestamp_ns as a proxy
+            // for "executor wrote something meaningful to this output slot".
+            om.dataSize = om.nonEmpty ? 1 : 0;
+            result.outputMetrics.push_back(std::move(om));
         }
 
     } catch (const std::exception& e) {

@@ -2,9 +2,15 @@
  * Replay Test View — full-screen page for module replay testing with real mcap data.
  * Uses snapshot-based replay: maintains a latest-value buffer per input channel,
  * calls process() at configurable frame rate with accumulated snapshots.
+ *
+ * Now includes an Attribution Stepper mode (S1-S6) alongside the classic view.
  */
 
 import nexisConfig from './nexis-config.json';
+import { createStepper } from './attribution/stepper.js';
+import { createSession } from './attribution/session.js';
+import { ALL_STAGES } from './attribution/stages/index.js';
+import './attribution/flamegraph-renderer.js';
 
 const WS_URL = 'ws://localhost:8765';
 const DEFAULT_HZ = 20;
@@ -196,7 +202,7 @@ async function readRawMessages(readers, topics, startNs, endNs) {
  * @param {object} opts
  */
 export async function createReplayTestView(container, opts) {
-  const { nodeId, topology, summary, onBack } = opts;
+  const { nodeId, topology, summary, onBack, msgDataCache, startTimeNs } = opts;
   const nodeData = topology.nodes.find(n => n.id === nodeId);
   const runtime = nodeData?.runtime || 'unknown';
   const runtimeLabel = runtime === 'nexis' ? 'Nexis IExecutor' : runtime === 'cyber' ? 'CyberRT Component' : 'Unknown';
@@ -222,8 +228,13 @@ export async function createReplayTestView(container, opts) {
         <span class="rt-meta-item">${summary.durationSec}s mcap</span>
         <span class="rt-meta-item">${summary.totalMessages.toLocaleString()} msgs</span>
       </div>
+      <div class="rt-mode-toggle">
+        <button class="rt-mode-btn active" id="rt-mode-attribution">Attribution</button>
+        <button class="rt-mode-btn" id="rt-mode-classic">Classic</button>
+      </div>
     </div>
-    <div class="rt-body">
+    <div class="at-container" id="at-container"></div>
+    <div class="rt-body" id="rt-classic-body">
       <div class="rt-left">
         <div class="rt-section">
           <div class="rt-section-title">Module Configuration</div>
@@ -306,6 +317,57 @@ export async function createReplayTestView(container, opts) {
   const hzSelect = el.querySelector('#rt-hz');
 
   el.querySelector('#rt-back').addEventListener('click', () => { destroy(); if (onBack) onBack(); });
+
+  // --- Attribution Stepper Mode ---
+  const atContainer = el.querySelector('#at-container');
+  const classicBody = el.querySelector('#rt-classic-body');
+  const modeAttrBtn = el.querySelector('#rt-mode-attribution');
+  const modeClassicBtn = el.querySelector('#rt-mode-classic');
+
+  let attributionStepper = null;
+
+  function showAttribution() {
+    atContainer.style.display = 'block';
+    classicBody.style.display = 'none';
+    modeAttrBtn.classList.add('active');
+    modeClassicBtn.classList.remove('active');
+
+    if (!attributionStepper) {
+      const inputTopicLines = guessTopics(nodeId, topology, 'sub').split('\n').filter(l => l.trim());
+      const outputTopicLines = guessTopics(nodeId, topology, 'pub').split('\n').filter(l => l.trim());
+      const proc = nexisConfig.processes[nodeId];
+      const outputDataNames = (proc?.pub || []).map(p => p.dataName || p.topic.split('/').pop()).filter(Boolean);
+      const flow = findExecutorFlowForAttribution(nodeId);
+
+      const session = createSession({
+        nodeId,
+        topology,
+        summary,
+        runtime,
+        soPath: defaults.soPath,
+        className: defaults.className,
+        configPaths: defaults.configPaths.split('\n').filter(l => l.trim()),
+        inputTopics: inputTopicLines,
+        outputTopics: outputTopicLines,
+        outputDataNames,
+        hz: flow?.hz || DEFAULT_HZ,
+        msgDataCache: msgDataCache || null,
+        startTimeNs: startTimeNs || null,
+      });
+      attributionStepper = createStepper(atContainer, ALL_STAGES, session);
+    }
+  }
+
+  function showClassic() {
+    atContainer.style.display = 'none';
+    classicBody.style.display = 'flex';
+    modeAttrBtn.classList.remove('active');
+    modeClassicBtn.classList.add('active');
+  }
+
+  modeAttrBtn.addEventListener('click', showAttribution);
+  modeClassicBtn.addEventListener('click', showClassic);
+  showAttribution();
   el.querySelector('#rt-run').addEventListener('click', () => startTest(false));
   el.querySelector('#rt-rebuild').addEventListener('click', () => startTest(true));
 
@@ -573,7 +635,13 @@ export async function createReplayTestView(container, opts) {
     setStatus('Reading mcap messages...', '');
     setProgress(0, 1, 'Reading mcap...');
 
-    const rawMsgs = await readRawMessages(summary.readers, inputTopics, summary.startTimeNs, summary.endTimeNs);
+    let rawMsgs;
+    if (msgDataCache && startTimeNs != null) {
+      rawMsgs = buildRawMsgsFromCacheClassic(msgDataCache, inputTopics, startTimeNs);
+      appendLog('info', `Loaded ${rawMsgs.length} messages from cache (no re-scan)`);
+    } else {
+      rawMsgs = await readRawMessages(summary.readers, inputTopics, summary.startTimeNs, summary.endTimeNs);
+    }
     if (rawMsgs.length === 0) {
       appendLog('warn', 'No messages found for input topics in mcap');
       ws.send(JSON.stringify({ cmd: 'unload' }));
@@ -717,6 +785,37 @@ export async function createReplayTestView(container, opts) {
   }
 
   return { destroy };
+}
+
+function buildRawMsgsFromCacheClassic(cache, inputTopics, baseStartNs) {
+  const msgs = [];
+  for (const topic of inputTopics) {
+    const entries = cache[topic];
+    if (!entries || entries.length === 0) { continue; }
+    for (const entry of entries) {
+      msgs.push({
+        topic,
+        logTime: baseStartNs + BigInt(Math.round(entry.sec * 1e9)),
+        data: entry.data instanceof Uint8Array ? entry.data : new Uint8Array(entry.data || []),
+        schemaName: '',
+        schemaEncoding: 'protobuf',
+      });
+    }
+  }
+  msgs.sort((a, b) => (a.logTime < b.logTime ? -1 : a.logTime > b.logTime ? 1 : 0));
+  return msgs;
+}
+
+function findExecutorFlowForAttribution(nodeId) {
+  const flows = nexisConfig.executorFlows || {};
+  const kw = nodeId.replace(/_/g, '');
+  for (const [name, flow] of Object.entries(flows)) {
+    const nkw = name.replace(/_/g, '');
+    if (nkw.includes(kw) || kw.includes(nkw.replace('executor', ''))) {
+      return flow;
+    }
+  }
+  return null;
 }
 
 function esc(s) { const d = document.createElement('span'); d.textContent = s; return d.innerHTML; }

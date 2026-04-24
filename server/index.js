@@ -8,8 +8,9 @@ import { WebSocketServer } from 'ws';
 import { spawn } from 'child_process';
 import { createServer } from 'http';
 import { dirname, join, resolve as pathResolve, isAbsolute, basename } from 'path';
-import { existsSync, statSync, readFileSync, createReadStream } from 'fs';
+import { existsSync, statSync, readFileSync, createReadStream, mkdirSync, appendFileSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { tmpdir } from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HARNESS_BIN = join(__dirname, '..', 'backend', 'build', 'executor_harness');
@@ -19,6 +20,8 @@ const RECORD2MCAP_BIN_CANDIDATES = [
   // Stand-alone record2mcap build directory.
   join(__dirname, '..', 'backend', 'record2mcap', 'build', 'record2mcap'),
 ];
+const STACKCOLLAPSE = join(__dirname, '..', 'tools', 'flamegraph', 'stackcollapse-perf.pl');
+const AGENT_OUTPUT_ROOT = join(__dirname, '..', '.agent_output');
 const PORT = parseInt(process.env.WS_PORT || '8765');
 
 const ENV = {
@@ -120,6 +123,21 @@ const httpServer = createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
     }
+    return;
+  }
+
+  if (req.url === '/perf-sample' && req.method === 'POST') {
+    await handlePerfSample(req, res);
+    return;
+  }
+
+  if (req.url === '/agent-output-write' && req.method === 'POST') {
+    await handleAgentOutputWrite(req, res);
+    return;
+  }
+
+  if (req.url === '/perf-check' && req.method === 'GET') {
+    handlePerfCheck(req, res);
     return;
   }
 
@@ -537,6 +555,271 @@ async function handleRecordToMcap(req, res) {
     });
     res.end();
   });
+}
+
+// ---------------------------------------------------------------------------
+// perf-sample endpoint
+// ---------------------------------------------------------------------------
+
+function findPerfBin() {
+  for (const candidate of ['/usr/bin/perf', '/usr/local/bin/perf']) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function handlePerfCheck(_req, res) {
+  const perfBin = findPerfBin();
+  let paranoid = null;
+  try {
+    paranoid = parseInt(readFileSync('/proc/sys/kernel/perf_event_paranoid', 'utf8').trim(), 10);
+  } catch { /* ignore */ }
+
+  const ok = perfBin !== null;
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({
+    perfAvailable: ok,
+    perfBin,
+    stackcollapseAvailable: existsSync(STACKCOLLAPSE),
+    perfEventParanoid: paranoid,
+    isRoot: process.getuid?.() === 0,
+    hint: ok ? null : 'Run: apt install -y linux-tools-generic linux-tools-$(uname -r)',
+  }));
+}
+
+async function handlePerfSample(req, res) {
+  let body = '';
+  try {
+    for await (const chunk of req) {
+      body += chunk.toString();
+      if (body.length > 64 * 1024) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body too large' }));
+        return;
+      }
+    }
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+
+  let payload;
+  try {
+    payload = body ? JSON.parse(body) : {};
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Invalid JSON: ${err.message}` }));
+    return;
+  }
+
+  const pid = payload.pid;
+  const durationSec = Math.min(Math.max(payload.duration_sec || 5, 1), 30);
+
+  if (!pid || !Number.isFinite(pid)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'pid is required and must be a number' }));
+    return;
+  }
+
+  const perfBin = findPerfBin();
+  if (!perfBin) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'perf not installed',
+      hint: 'Run: apt install -y linux-tools-generic linux-tools-$(uname -r)',
+    }));
+    return;
+  }
+
+  if (!existsSync(STACKCOLLAPSE)) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'stackcollapse-perf.pl not found',
+      hint: `Expected at: ${STACKCOLLAPSE}`,
+    }));
+    return;
+  }
+
+  const perfDataPath = join(tmpdir(), `ad-topo-perf-${pid}-${Date.now()}.data`);
+
+  console.log(`[perf-sample] pid=${pid} duration=${durationSec}s output=${perfDataPath}`);
+
+  try {
+    const recordResult = await runShellCmd(
+      `${perfBin} record -F 99 -g --call-graph fp -p ${pid} -o ${perfDataPath} -- sleep ${durationSec}`,
+      durationSec * 1000 + 10000,
+    );
+
+    if (!existsSync(perfDataPath) || statSync(perfDataPath).size === 0) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: 'perf record produced no data',
+        stderr: recordResult.stderr?.slice(-500),
+      }));
+      cleanup(perfDataPath);
+      return;
+    }
+
+    const scriptResult = await runShellCmd(
+      `${perfBin} script -i ${perfDataPath} | perl ${STACKCOLLAPSE}`,
+      30000,
+    );
+
+    cleanup(perfDataPath);
+
+    if (!scriptResult.stdout) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: 'stackcollapse produced no output',
+        stderr: scriptResult.stderr?.slice(-500),
+      }));
+      return;
+    }
+
+    const foldedLines = scriptResult.stdout.trim().split('\n').filter(Boolean);
+    const stacks = foldedLines.map(line => {
+      const lastSpace = line.lastIndexOf(' ');
+      if (lastSpace < 0) {
+        return { stack: line, count: 1 };
+      }
+      return {
+        stack: line.slice(0, lastSpace),
+        count: parseInt(line.slice(lastSpace + 1), 10) || 1,
+      };
+    });
+
+    const totalSamples = stacks.reduce((sum, s) => sum + s.count, 0);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      pid,
+      durationSec,
+      totalSamples,
+      foldedStacks: scriptResult.stdout.trim(),
+      stacks,
+    }));
+  } catch (err) {
+    cleanup(perfDataPath);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+function runShellCmd(cmd, timeoutMs) {
+  return new Promise((resolve) => {
+    const proc = spawn('bash', ['-c', cmd], {
+      env: ENV,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      proc.kill('SIGTERM');
+    }, timeoutMs);
+
+    proc.stdout.on('data', (c) => { stdout += c.toString(); });
+    proc.stderr.on('data', (c) => { stderr += c.toString(); });
+    proc.on('error', (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, stdout, stderr: `${stderr}\n${e.message}`.trim() });
+    });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({
+        ok: !timedOut && code === 0,
+        exitCode: timedOut ? -1 : (code ?? -1),
+        stdout,
+        stderr: timedOut ? `${stderr}\nTimeout after ${timeoutMs}ms` : stderr,
+      });
+    });
+  });
+}
+
+function cleanup(filePath) {
+  try {
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+    }
+  } catch { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
+// agent-output-write endpoint
+// ---------------------------------------------------------------------------
+
+async function handleAgentOutputWrite(req, res) {
+  let body = '';
+  try {
+    for await (const chunk of req) {
+      body += chunk.toString();
+      if (body.length > 1024 * 1024) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body too large' }));
+        return;
+      }
+    }
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+
+  let payload;
+  try {
+    payload = body ? JSON.parse(body) : {};
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Invalid JSON: ${err.message}` }));
+    return;
+  }
+
+  const slug = payload.slug;
+  const stageId = payload.stage_id || '';
+  const content = payload.content;
+
+  if (!slug || typeof slug !== 'string') {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'slug is required' }));
+    return;
+  }
+  if (content === undefined || content === null) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'content is required' }));
+    return;
+  }
+
+  const safeSlug = slug.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const taskDir = join(AGENT_OUTPUT_ROOT, 'tasks', safeSlug);
+  const taskFile = join(taskDir, `${safeSlug}.json`);
+
+  try {
+    mkdirSync(taskDir, { recursive: true });
+
+    const entry = {
+      agent: 'Analyzer',
+      stage: stageId,
+      type: 'ANALYSIS',
+      time: new Date().toISOString(),
+      content,
+    };
+
+    appendFileSync(taskFile, JSON.stringify(entry) + '\n', 'utf8');
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true,
+      path: taskFile,
+      slug: safeSlug,
+    }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
 }
 
 httpServer.listen(PORT, '0.0.0.0', () => {

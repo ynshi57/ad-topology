@@ -239,6 +239,10 @@ function showDropZone() {
             <span>overwrite existing mcap (record only)</span>
           </label>
         </div>
+        <div class="dz-progress-wrap" id="dz-progress-wrap" style="display:none">
+          <div class="dz-progress-bar"><div class="dz-progress-fill" id="dz-progress-fill"></div></div>
+          <div class="dz-progress-text" id="dz-progress-text"></div>
+        </div>
         <pre class="dz-record-log" id="dz-record-log" style="display:none"></pre>
         <div class="dz-hint"><span class="dz-sample" id="dz-sample">Load sample from workspace</span></div>
       </div>
@@ -336,6 +340,7 @@ function showDropZone() {
         filename = converted.filename;
       }
 
+      appendLog('fetching mcap from server...');
       const fileResp = await fetch(
         `http://localhost:8765/file?path=${encodeURIComponent(mcapPath)}`,
       );
@@ -343,8 +348,34 @@ function showDropZone() {
         const errText = await fileResp.text().catch(() => '');
         throw new Error(`fetch mcap failed: ${fileResp.status} ${errText}`);
       }
-      const blob = await fileResp.blob();
+
+      const contentLength = parseInt(fileResp.headers.get('Content-Length') || '0', 10);
+      const progressWrap = document.getElementById('dz-progress-wrap');
+      const progressFill = document.getElementById('dz-progress-fill');
+      const progressText = document.getElementById('dz-progress-text');
+      if (progressWrap) { progressWrap.style.display = 'block'; }
+
+      let receivedBytes = 0;
+      const chunks = [];
+      const reader = fileResp.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { break; }
+        chunks.push(value);
+        receivedBytes += value.length;
+        if (contentLength > 0 && progressFill) {
+          const pct = Math.round(receivedBytes / contentLength * 100);
+          progressFill.style.width = `${pct}%`;
+          if (progressText) {
+            progressText.textContent = `${(receivedBytes / 1024 / 1024).toFixed(1)} / ${(contentLength / 1024 / 1024).toFixed(1)} MB`;
+          }
+        }
+      }
+
+      const blob = new Blob(chunks);
       appendLog(`downloaded ${blob.size.toLocaleString()} bytes, parsing mcap...`);
+      if (progressFill) { progressFill.style.width = '100%'; }
+      if (progressText) { progressText.textContent = 'parsing...'; }
       const file = new File([blob], filename, { type: 'application/octet-stream' });
       await handleFiles([file]);
     } catch (err) {
@@ -369,16 +400,34 @@ function showDropZone() {
 }
 
 function showLoading(msg) {
-  app.innerHTML = `<div class="loading"><div class="loading-spinner"></div><p>${msg}</p></div>`;
+  app.innerHTML = `<div class="loading"><div class="loading-spinner"></div><p id="loading-msg">${msg}</p><div class="dz-progress-wrap" id="loading-progress" style="display:none;margin-top:12px;width:400px"><div class="dz-progress-bar"><div class="dz-progress-fill" id="loading-fill"></div></div><div class="dz-progress-text" id="loading-text"></div></div></div>`;
+}
+
+function updateLoadingProgress(pct, text) {
+  const fill = document.getElementById('loading-fill');
+  const txt = document.getElementById('loading-text');
+  const wrap = document.getElementById('loading-progress');
+  const msg = document.getElementById('loading-msg');
+  if (wrap) { wrap.style.display = 'block'; }
+  if (fill) { fill.style.width = `${Math.min(pct, 100)}%`; }
+  if (txt) { txt.textContent = text || ''; }
+  if (msg && text) { msg.textContent = text; }
 }
 
 async function handleFiles(files) {
-  showLoading(`Parsing ${files.length} file(s)...`);
+  showLoading(`Preparing ${files.length} file(s)...`);
   try {
+    updateLoadingProgress(10, 'Opening mcap files...');
     sharedSummary = await loadMcapFiles(files);
+
+    updateLoadingProgress(30, 'Building topology...');
     sharedTopology = buildTopologyFromChannels(sharedSummary.channels);
     sharedStartNs = sharedSummary.startTimeNs;
+
+    updateLoadingProgress(50, 'Initializing proto decoder...');
     await initDecoder(sharedSummary.readers);
+
+    updateLoadingProgress(70, 'Topology ready, building message index...');
     showTopologyView();
   } catch (err) {
     console.error('MCAP parse error:', err);
@@ -703,6 +752,8 @@ async function showReplayTestView(nodeId) {
     nodeId,
     topology: sharedTopology,
     summary: sharedSummary,
+    msgDataCache,
+    startTimeNs: sharedStartNs,
     onBack() {
       if (currentReplayTest) { currentReplayTest = null; }
       showDetailView(nodeId);
