@@ -48,7 +48,12 @@ export default {
           ws.onmessage = null;
 
           if (!msg.success) {
-            reject(new Error(msg.error || 'Load failed'));
+            const execErrors = (msg.executors || [])
+              .filter(e => !e.success)
+              .map(e => `${e.class}: ${e.error || 'unknown'}`)
+              .join('; ');
+            const detail = msg.error || msg.message || execErrors || 'Load failed';
+            reject(new Error(detail));
           } else {
             if (msg.pid) {
               ctx.harnessPid = msg.pid;
@@ -59,6 +64,7 @@ export default {
               stderrLines,
               warnings,
               findings,
+              executorResults: msg.executors || [],
             });
           }
         }
@@ -70,12 +76,13 @@ export default {
         }
       };
 
-      const configPaths = ctx.configPaths;
+      // Single-executor mode: use session's soPath/className/configPaths
+      // (populated from left panel inputs, which reflect selected executor)
       ws.send(JSON.stringify({
         cmd: 'load',
         so_path: ctx.soPath,
         class: ctx.className,
-        config_paths: configPaths,
+        config_paths: ctx.configPaths,
         input_topics: ctx.inputTopics,
         output_topics: ctx.outputTopics,
         output_data_names: ctx.outputDataNames,
@@ -85,8 +92,17 @@ export default {
   },
 
   render(el, result) {
+    const execResults = result.executorResults || [];
+    const execHtml = execResults.length > 0
+      ? execResults.map(er => `<div class="at-kv" style="margin-left:8px">
+          <span>${esc(er.class)}:</span> <strong>${er.success ? 'OK' : 'FAILED'}</strong>
+          ${er.error ? `<span style="color:#ef4444"> ${esc(er.error)}</span>` : ''}
+        </div>`).join('')
+      : '';
+
     el.innerHTML = `
       <div class="at-kv"><span>Mode:</span> <strong>${result.mode || 'unknown'}</strong></div>
+      ${execHtml}
       <div class="at-kv"><span>Warnings:</span> <strong>${result.warnings?.length || 0}</strong></div>
       ${(result.findings || []).map(f =>
         `<div class="at-finding at-finding-${f.severity}"><strong>[${f.ruleId}]</strong> ${esc(f.finding)}</div>`

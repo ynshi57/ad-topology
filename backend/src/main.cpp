@@ -145,6 +145,7 @@ int main(int argc, char** argv) {
                 resp["success"] = true;
                 resp["mode"] = mode;
                 resp["message"] = "Loaded as " + label;
+                resp["pid"] = static_cast<int>(getpid());
                 writeResponse(resp);
             };
 
@@ -157,7 +158,44 @@ int main(int argc, char** argv) {
                 writeResponse(resp);
             };
 
-            if (runtimeHint == "nexis") {
+            // Multi-executor load: if cmd["executors"] is an array, load them all
+            if (cmd.isMember("executors") && cmd["executors"].isArray() && cmd["executors"].size() > 0) {
+                std::vector<harness::HarnessConfig> configs;
+                for (const auto& ex : cmd["executors"]) {
+                    harness::HarnessConfig cfg;
+                    cfg.soPath = ex.get("so_path", soPath).asString();
+                    cfg.executorClass = ex.get("class", className).asString();
+                    for (const auto& p : ex["config_paths"]) {
+                        cfg.configPaths.push_back(p.asString());
+                    }
+                    for (const auto& n : ex["output_data_names"]) {
+                        cfg.outputDataNames.push_back(n.asString());
+                    }
+                    configs.push_back(std::move(cfg));
+                }
+                auto results = execHarness.loadMultiple(configs);
+                bool allOk = true;
+                Json::Value resp;
+                resp["cmd"] = "load_result";
+                resp["mode"] = "multi_executor";
+                resp["pid"] = static_cast<int>(getpid());
+                Json::Value execResults(Json::arrayValue);
+                for (const auto& r : results) {
+                    Json::Value er;
+                    er["class"] = r.className;
+                    er["success"] = r.success;
+                    if (!r.error.empty()) er["error"] = r.error;
+                    execResults.append(er);
+                    if (!r.success) allOk = false;
+                }
+                resp["success"] = allOk;
+                resp["executors"] = execResults;
+                resp["message"] = allOk
+                    ? "Loaded " + std::to_string(results.size()) + " executors"
+                    : "Some executors failed to load";
+                if (allOk) activeMode = "executor";
+                writeResponse(resp);
+            } else if (runtimeHint == "nexis") {
                 std::string err;
                 if (tryExecutor(err)) {
                     sendLoadOk("executor", "Nexis IExecutor");
@@ -206,7 +244,7 @@ int main(int argc, char** argv) {
             const auto& frames = cmd["frames"];
             Json::Value resp;
             resp["cmd"] = "process_result";
-            resp["mode"] = "executor";
+            resp["mode"] = execHarness.executorCount() > 0 ? "multi_executor" : "executor";
             resp["results"] = Json::Value(Json::arrayValue);
 
             for (const auto& frame : frames) {
@@ -219,6 +257,22 @@ int main(int argc, char** argv) {
                     std::string decoded = base64Decode(inp["data_base64"].asString());
                     fi.protoData.assign(decoded.begin(), decoded.end());
                     inputs.push_back(std::move(fi));
+                }
+
+                // Multi-executor: run all loaded executors
+                if (execHarness.executorCount() > 0) {
+                    auto multiResults = execHarness.processFrameMulti(inputs);
+                    for (auto& result : multiResults) {
+                        Json::Value r;
+                        r["timestamp_ns"] = Json::Value::UInt64(result.timestampNs);
+                        r["status_code"] = result.statusCode;
+                        r["status"] = result.statusName;
+                        r["process_time_ms"] = result.processTimeMs;
+                        if (!result.errorMsg.empty()) { r["error"] = result.errorMsg; }
+                        r["output"] = result.outputJson;
+                        resp["results"].append(r);
+                    }
+                    continue;
                 }
 
                 auto result = execHarness.processFrame(inputs);
@@ -257,6 +311,55 @@ int main(int argc, char** argv) {
 
                 resp["results"].append(r);
             }
+            writeResponse(resp);
+
+        } else if (cmdType == "perf_replay" && activeMode == "executor") {
+            // Tight-loop replay for perf sampling: process all frames back-to-back
+            // with minimal overhead so perf can capture process() internals.
+            const auto& frames = cmd["frames"];
+            const int repeatCount = cmd.get("repeat", 1).asInt();
+            int totalFrames = 0;
+            int okFrames = 0;
+            double totalMs = 0;
+
+            std::cerr << "[Harness] perf_replay: " << frames.size()
+                      << " frames x" << repeatCount << " repeats" << std::endl;
+
+            // Pre-parse all frame inputs to avoid JSON overhead during tight loop
+            struct PreParsedFrame {
+                std::vector<harness::FrameInput> inputs;
+            };
+            std::vector<PreParsedFrame> parsedFrames;
+            for (const auto& frame : frames) {
+                PreParsedFrame pf;
+                for (const auto& inp : frame["inputs"]) {
+                    harness::FrameInput fi;
+                    fi.timestampNs = inp["timestamp_ns"].asUInt64();
+                    fi.dataName = inp["name"].asString();
+                    fi.protoType = inp.get("proto_type", "").asString();
+                    std::string decoded = base64Decode(inp["data_base64"].asString());
+                    fi.protoData.assign(decoded.begin(), decoded.end());
+                    pf.inputs.push_back(std::move(fi));
+                }
+                parsedFrames.push_back(std::move(pf));
+            }
+
+            // Tight loop — this is where perf should see process() stacks
+            for (int rep = 0; rep < repeatCount; rep++) {
+                for (const auto& pf : parsedFrames) {
+                    auto result = execHarness.processFrame(pf.inputs);
+                    totalFrames++;
+                    if (result.statusCode == 1) { okFrames++; }
+                    totalMs += result.processTimeMs;
+                }
+            }
+
+            Json::Value resp;
+            resp["cmd"] = "perf_replay_result";
+            resp["total_frames"] = totalFrames;
+            resp["ok_frames"] = okFrames;
+            resp["total_ms"] = totalMs;
+            resp["avg_ms"] = totalFrames > 0 ? totalMs / totalFrames : 0;
             writeResponse(resp);
 
         } else if (cmdType == "inject" && activeMode == "cyber") {

@@ -68,9 +68,18 @@ export function createNodeDetail(container, opts) {
       </div>
     </div>
     <div class="nd-mini-topo" id="nd-mini-topo"></div>
+    <div class="nd-resize-handle" id="nd-resize-handle" title="Drag to resize"></div>
     <div class="nd-selector" id="nd-selector">
-      <span class="nd-sel-label">Topics:</span>
-      <div class="nd-sel-list" id="nd-sel-list"></div>
+      <div class="nd-sel-columns">
+        <div class="nd-sel-col" id="nd-sel-col-sub">
+          <div class="nd-sel-col-title sub">SUB <span class="nd-sel-col-count" id="nd-sub-count">0</span></div>
+          <div class="nd-sel-col-body" id="nd-sel-sub-body"></div>
+        </div>
+        <div class="nd-sel-col" id="nd-sel-col-pub">
+          <div class="nd-sel-col-title pub">PUB <span class="nd-sel-col-count" id="nd-pub-count">0</span></div>
+          <div class="nd-sel-col-body" id="nd-sel-pub-body"></div>
+        </div>
+      </div>
     </div>
     <div class="nd-panels" id="nd-panels"></div>
   `;
@@ -87,17 +96,73 @@ export function createNodeDetail(container, opts) {
     nodeId, nodeData, upstreamIds, downstreamIds, upstreamLinks, downstreamLinks, nodes, DOMAINS,
   });
 
-  // --- Topic Selector ---
-  const selList = el.querySelector('#nd-sel-list');
+  // --- Resize Handle ---
+  const miniTopo = el.querySelector('#nd-mini-topo');
+  const resizeHandle = el.querySelector('#nd-resize-handle');
+  let resizing = false;
+  let startY = 0;
+  let startH = 0;
+
+  resizeHandle.addEventListener('mousedown', (e) => {
+    resizing = true;
+    startY = e.clientY;
+    startH = miniTopo.offsetHeight;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  const onMouseMove = (e) => {
+    if (!resizing) { return; }
+    const delta = e.clientY - startY;
+    const newH = Math.max(60, Math.min(startH + delta, 600));
+    miniTopo.style.height = newH + 'px';
+  };
+
+  const onMouseUp = () => {
+    if (!resizing) { return; }
+    resizing = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+
+  // --- Topic Selector (two-column: SUB | PUB, grouped by node) ---
+  const subBody = el.querySelector('#nd-sel-sub-body');
+  const pubBody = el.querySelector('#nd-sel-pub-body');
   const selectedTopics = new Set();
   const panelContainer = el.querySelector('#nd-panels');
 
-  allTopics.forEach(t => {
+  el.querySelector('#nd-sub-count').textContent = subTopics.length;
+  el.querySelector('#nd-pub-count').textContent = pubTopics.length;
+
+  // Group SUB topics by upstream node
+  const subByNode = {};
+  for (const t of subTopics) {
+    const fromNode = t.from || 'unknown';
+    if (!subByNode[fromNode]) { subByNode[fromNode] = []; }
+    subByNode[fromNode].push(t);
+  }
+
+  // Group PUB topics by downstream subscriber (from topicToSubscribers)
+  // Use the full subscriber mapping instead of only downstreamLinks, which
+  // may miss some subscribers not represented as topo edges.
+  const topicToSubs = topology.topicToSubscribers || {};
+  const pubByNode = {};
+  for (const t of pubTopics) {
+    const subs = topicToSubs[t.topic] || [];
+    const key = subs.length > 0 ? '→ ' + [...subs].sort().join(', ') : '(no known subscriber)';
+    if (!pubByNode[key]) { pubByNode[key] = []; }
+    pubByNode[key].push(t);
+  }
+
+  function createChip(t) {
     const chip = document.createElement('button');
     chip.className = 'nd-chip';
     chip.dataset.topic = t.topic;
-    const dirLabel = t.direction === 'PUB' ? 'PUB' : `SUB`;
-    chip.innerHTML = `<span class="nd-chip-dir ${t.direction === 'PUB' ? 'pub' : 'sub'}">${dirLabel}</span> ${esc(shortTopic(t.topic))} <span class="nd-chip-hz">${t.hz}Hz</span>`;
+    chip.innerHTML = `${esc(shortTopic(t.topic))} <span class="nd-chip-hz">${t.hz}Hz</span>`;
     chip.addEventListener('click', () => {
       if (selectedTopics.has(t.topic)) {
         selectedTopics.delete(t.topic);
@@ -109,8 +174,38 @@ export function createNodeDetail(container, opts) {
         addPanel(t);
       }
     });
-    selList.appendChild(chip);
-  });
+    return chip;
+  }
+
+  function createNodeGroup(parentEl, label, domainColor, topics) {
+    const group = document.createElement('div');
+    group.className = 'nd-sel-node-group';
+    const dotHtml = domainColor ? `<span class="nd-sel-group-dot" style="background:${domainColor}"></span>` : '';
+    group.innerHTML = `<div class="nd-sel-node-header">${dotHtml}<span class="nd-sel-node-name">${esc(label)}</span><span class="nd-sel-group-count">${topics.length}</span></div>`;
+    const chips = document.createElement('div');
+    chips.className = 'nd-sel-node-chips';
+    for (const t of topics) { chips.appendChild(createChip(t)); }
+    group.appendChild(chips);
+    parentEl.appendChild(group);
+  }
+
+  // Fill SUB column
+  const sortedUpstreams = Object.keys(subByNode).sort();
+  for (const fromNode of sortedUpstreams) {
+    const upNode = nodes.find(n => n.id === fromNode);
+    const domainColor = DC[upNode?.domain] || '#555';
+    createNodeGroup(subBody, fromNode, domainColor, subByNode[fromNode]);
+  }
+
+  // Fill PUB column
+  const sortedDownstreams = Object.keys(pubByNode).sort();
+  for (const toKey of sortedDownstreams) {
+    const isNoSub = toKey.startsWith('(no');
+    const firstNodeName = isNoSub ? '' : toKey.replace(/^→ /, '').split(', ')[0];
+    const downNode = firstNodeName ? nodes.find(n => n.id === firstNodeName) : null;
+    const domainColor = downNode ? (DC[downNode.domain] || '#555') : null;
+    createNodeGroup(pubBody, toKey, domainColor, pubByNode[toKey]);
+  }
 
   // --- Message Panels ---
   const activePanels = new Map(); // topic -> { el, listEl, autoScroll }
@@ -217,6 +312,8 @@ export function createNodeDetail(container, opts) {
   }
 
   function destroy() {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
     el.remove();
   }
 

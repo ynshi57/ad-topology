@@ -13,48 +13,55 @@ export default {
   name: 'Perf',
 
   async run(ctx) {
-    const checkResp = await fetch(`${BACKEND_BASE}/perf-check`);
-    const checkData = await checkResp.json();
+    // Prefer perf data collected during S2 replay (much more meaningful than
+    // post-replay idle sampling). Falls back to on-demand /perf-sample if S2
+    // data is not available.
+    let data = ctx.getEvidence('S5', 'perfFromS2');
 
-    if (!checkData.perfAvailable) {
-      return {
-        status: 'warn',
-        warnings: [checkData.hint || 'perf not available'],
-        foldedStacks: null,
-        hotspots: [],
-        findings: [],
-      };
+    if (!data) {
+      const checkResp = await fetch(`${BACKEND_BASE}/perf-check`);
+      const checkData = await checkResp.json();
+
+      if (!checkData.perfAvailable) {
+        return {
+          status: 'warn',
+          warnings: [checkData.hint || 'perf not available'],
+          foldedStacks: null,
+          hotspots: [],
+          findings: [],
+        };
+      }
+
+      const pid = ctx.harnessPid;
+      if (!pid) {
+        return {
+          status: 'warn',
+          warnings: ['Harness PID unknown — run S2 first to collect perf during replay.'],
+          foldedStacks: null,
+          hotspots: [],
+          findings: [],
+        };
+      }
+
+      const resp = await fetch(`${BACKEND_BASE}/perf-sample`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pid, duration_sec: DEFAULT_DURATION_SEC }),
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        return {
+          status: 'warn',
+          warnings: [`perf failed: ${errData.error || resp.status}`],
+          foldedStacks: null,
+          hotspots: [],
+          findings: [],
+        };
+      }
+
+      data = await resp.json();
     }
-
-    const pid = ctx.harnessPid;
-    if (!pid) {
-      return {
-        status: 'warn',
-        warnings: ['Harness PID unknown — cannot attach perf. Try running S2 first.'],
-        foldedStacks: null,
-        hotspots: [],
-        findings: [],
-      };
-    }
-
-    const resp = await fetch(`${BACKEND_BASE}/perf-sample`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pid, duration_sec: DEFAULT_DURATION_SEC }),
-    });
-
-    if (!resp.ok) {
-      const errData = await resp.json().catch(() => ({}));
-      return {
-        status: 'warn',
-        warnings: [`perf-sample failed: ${errData.error || resp.status}`],
-        foldedStacks: null,
-        hotspots: [],
-        findings: [],
-      };
-    }
-
-    const data = await resp.json();
     const stacks = data.stacks || [];
     const totalSamples = data.totalSamples || 0;
 

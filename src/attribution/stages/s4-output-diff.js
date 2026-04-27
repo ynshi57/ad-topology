@@ -29,12 +29,23 @@ export default {
       }
     }
 
+    // Determine which output channels belong to this executor vs other
+    // executors in the same DAG process. Only flag zero-output on ours.
+    const myOutputNames = new Set(ctx.outputDataNames || []);
+
     const zeroOutputChannels = [];
     const outputStats = [];
     for (const [name, s] of Object.entries(outputSummary)) {
       const avgSize = s.frameCount > 0 ? s.totalSize / s.frameCount : 0;
-      outputStats.push({ name, avgSize: Math.round(avgSize), nonEmptyPct: s.frameCount > 0 ? Math.round(s.nonEmptyCount / s.frameCount * 100) : 0, frames: s.frameCount });
-      if (s.nonEmptyCount === 0 && s.frameCount > 0) {
+      const isMine = myOutputNames.size === 0 || myOutputNames.has(name);
+      outputStats.push({
+        name,
+        avgSize: Math.round(avgSize),
+        nonEmptyPct: s.frameCount > 0 ? Math.round(s.nonEmptyCount / s.frameCount * 100) : 0,
+        frames: s.frameCount,
+        ownedByThisExecutor: isMine,
+      });
+      if (s.nonEmptyCount === 0 && s.frameCount > 0 && isMine) {
         zeroOutputChannels.push(name);
       }
     }
@@ -61,7 +72,10 @@ export default {
   },
 
   render(el, result) {
-    const rows = (result.outputStats || []).map(o => {
+    const mine = (result.outputStats || []).filter(o => o.ownedByThisExecutor !== false);
+    const others = (result.outputStats || []).filter(o => o.ownedByThisExecutor === false);
+
+    const renderRow = (o) => {
       const cls = o.nonEmptyPct > 0 ? 'at-health-ok' : 'at-health-bad';
       return `<div class="at-health-row ${cls}">
         <span class="at-health-indicator">${o.nonEmptyPct > 0 ? '\u25CF' : '\u26A0'}</span>
@@ -69,10 +83,16 @@ export default {
         <span class="at-health-hz">${o.nonEmptyPct}% non-empty</span>
         <span class="at-health-count">avg ${o.avgSize}B</span>
       </div>`;
-    }).join('');
+    };
+
+    const rows = mine.map(renderRow).join('');
+    const otherRows = others.length > 0
+      ? `<details class="at-other-outputs"><summary class="at-note">Other executors in same process (${others.length})</summary>${others.map(renderRow).join('')}</details>`
+      : '';
 
     el.innerHTML = `
       <div class="at-health-grid">${rows}</div>
+      ${otherRows}
       ${(result.findings || []).map(f =>
         `<div class="at-finding at-finding-${f.severity}"><strong>[${f.ruleId}]</strong> ${esc(f.finding)}</div>`
       ).join('')}

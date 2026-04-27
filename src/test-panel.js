@@ -10,6 +10,7 @@ import nexisConfig from './nexis-config.json';
 import { createStepper } from './attribution/stepper.js';
 import { createSession } from './attribution/session.js';
 import { ALL_STAGES } from './attribution/stages/index.js';
+import { createExecutorSelector, getProcessExecutors } from './attribution/executor-selector.js';
 import './attribution/flamegraph-renderer.js';
 
 const WS_URL = 'ws://localhost:8765';
@@ -228,13 +229,9 @@ export async function createReplayTestView(container, opts) {
         <span class="rt-meta-item">${summary.durationSec}s mcap</span>
         <span class="rt-meta-item">${summary.totalMessages.toLocaleString()} msgs</span>
       </div>
-      <div class="rt-mode-toggle">
-        <button class="rt-mode-btn active" id="rt-mode-attribution">Attribution</button>
-        <button class="rt-mode-btn" id="rt-mode-classic">Classic</button>
-      </div>
     </div>
-    <div class="at-container" id="at-container"></div>
-    <div class="rt-body" id="rt-classic-body">
+    <div class="exec-selector-area" id="exec-selector-area"></div>
+    <div class="rt-unified-body">
       <div class="rt-left">
         <div class="rt-section">
           <div class="rt-section-title">Module Configuration</div>
@@ -254,46 +251,9 @@ export async function createReplayTestView(container, opts) {
           <label class="rt-label">Output Topics</label>
           <textarea class="rt-textarea rt-topics" id="rt-output-topics">${esc(guessTopics(nodeId, topology, 'pub'))}</textarea>
         </div>
-        <div class="rt-section">
-          <div class="rt-section-title">Replay Settings</div>
-          <label class="rt-label">Frame Rate (Hz)</label>
-          <select class="rt-select" id="rt-hz">
-            <option value="auto">Auto (${detectFrameHz(nodeId)} Hz)</option>
-            <option value="10">10 Hz</option>
-            <option value="20">20 Hz</option>
-            <option value="50">50 Hz</option>
-            <option value="100">100 Hz</option>
-          </select>
-        </div>
-        <div class="rt-actions">
-          <button class="rt-btn rt-btn-primary" id="rt-run">Run Test</button>
-          <button class="rt-btn rt-btn-rebuild" id="rt-rebuild">Rebuild & Test</button>
-        </div>
-        <div class="rt-progress-area" id="rt-progress-area" style="display:none">
-          <div class="rt-progress-bar"><div class="rt-progress-fill" id="rt-progress-fill"></div></div>
-          <div class="rt-progress-text" id="rt-progress-text">Preparing...</div>
-        </div>
-        <div class="rt-status" id="rt-status"></div>
       </div>
       <div class="rt-right">
-        <div class="rt-summary" id="rt-summary" style="display:none">
-          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-frames">0</span><span class="rt-stat-label">Frames</span></div>
-          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-pass">0</span><span class="rt-stat-label">Pass</span></div>
-          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-fail">0</span><span class="rt-stat-label">Fail</span></div>
-          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-avg">-</span><span class="rt-stat-label">Avg ms</span></div>
-          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-max">-</span><span class="rt-stat-label">Max ms</span></div>
-          <div class="rt-stat"><span class="rt-stat-val" id="rt-stat-total">-</span><span class="rt-stat-label">Total</span></div>
-        </div>
-        <div class="rt-flamegraph-area" id="rt-flamegraph-area" style="display:none">
-          <div class="rt-section-title">Process Timing
-            <span class="rt-fg-hint">(each bar = one process() call, color = duration)</span>
-          </div>
-          <canvas id="rt-flame-canvas" width="800" height="120"></canvas>
-        </div>
-        <div class="rt-log-area">
-          <div class="rt-section-title">Frame Log</div>
-          <div class="rt-log" id="rt-log"></div>
-        </div>
+        <div class="at-container" id="at-container"></div>
       </div>
     </div>
   `;
@@ -305,102 +265,114 @@ export async function createReplayTestView(container, opts) {
   const buildCmdInput = el.querySelector('#rt-build-cmd');
   const inputTopicsEl = el.querySelector('#rt-input-topics');
   const outputTopicsEl = el.querySelector('#rt-output-topics');
-  const statusEl = el.querySelector('#rt-status');
-  const logEl = el.querySelector('#rt-log');
-  const progressArea = el.querySelector('#rt-progress-area');
-  const progressFill = el.querySelector('#rt-progress-fill');
-  const progressText = el.querySelector('#rt-progress-text');
-  const summaryEl = el.querySelector('#rt-summary');
-  const flameArea = el.querySelector('#rt-flamegraph-area');
-  const flameCanvas = el.querySelector('#rt-flame-canvas');
-
-  const hzSelect = el.querySelector('#rt-hz');
 
   el.querySelector('#rt-back').addEventListener('click', () => { destroy(); if (onBack) onBack(); });
 
-  // --- Attribution Stepper Mode ---
+  // --- Executor Selector + Unified Stepper ---
   const atContainer = el.querySelector('#at-container');
-  const classicBody = el.querySelector('#rt-classic-body');
-  const modeAttrBtn = el.querySelector('#rt-mode-attribution');
-  const modeClassicBtn = el.querySelector('#rt-mode-classic');
+  const execSelectorArea = el.querySelector('#exec-selector-area');
 
+  const execSelector = createExecutorSelector(execSelectorArea, nodeId, (selected) => {
+    updateLeftPanelFromExecutor();
+  });
   let attributionStepper = null;
 
-  function showAttribution() {
-    atContainer.style.display = 'block';
-    classicBody.style.display = 'none';
-    modeAttrBtn.classList.add('active');
-    modeClassicBtn.classList.remove('active');
-
-    if (!attributionStepper) {
-      const inputTopicLines = guessTopics(nodeId, topology, 'sub').split('\n').filter(l => l.trim());
-      const outputTopicLines = guessTopics(nodeId, topology, 'pub').split('\n').filter(l => l.trim());
-      const proc = nexisConfig.processes[nodeId];
-      const outputDataNames = (proc?.pub || []).map(p => p.dataName || p.topic.split('/').pop()).filter(Boolean);
-      const flow = findExecutorFlowForAttribution(nodeId);
-
-      const session = createSession({
-        nodeId,
-        topology,
-        summary,
-        runtime,
-        soPath: defaults.soPath,
-        className: defaults.className,
-        configPaths: defaults.configPaths.split('\n').filter(l => l.trim()),
-        inputTopics: inputTopicLines,
-        outputTopics: outputTopicLines,
-        outputDataNames,
-        hz: flow?.hz || DEFAULT_HZ,
-        msgDataCache: msgDataCache || null,
-        startTimeNs: startTimeNs || null,
-      });
-      attributionStepper = createStepper(atContainer, ALL_STAGES, session);
+  function initStepper() {
+    if (attributionStepper) {
+      attributionStepper.destroy();
+      atContainer.innerHTML = '';
     }
+
+    const selectedExecutors = execSelector.getSelected();
+    const inputTopicLines = inputTopicsEl.value.trim().split('\n').filter(l => l.trim());
+    const outputTopicLines = outputTopicsEl.value.trim().split('\n').filter(l => l.trim());
+    const proc = nexisConfig.processes[nodeId];
+    const flow = findExecutorFlowForAttribution(nodeId);
+
+    // Single-executor mode: use the first selected executor's config,
+    // but allow user overrides from the left panel inputs.
+    const primaryExec = selectedExecutors[0] || {};
+    const soPath = soInput.value.trim() || (primaryExec.libName ? `${LIB_DIR}/${primaryExec.libName}` : defaults.soPath);
+    const className = classInput.value.trim() || primaryExec.className || defaults.className;
+    const configLines = configInput.value.trim().split('\n').filter(l => l.trim());
+    const configPaths = configLines.length > 0 ? configLines : (primaryExec.cfgFiles || []);
+
+    const outputDataNames = [];
+    for (const ex of selectedExecutors) {
+      for (const o of (ex.outputs || [])) {
+        if (!outputDataNames.includes(o)) { outputDataNames.push(o); }
+      }
+    }
+
+    const session = createSession({
+      nodeId,
+      topology,
+      summary,
+      runtime,
+      soPath,
+      className,
+      configPaths,
+      inputTopics: inputTopicLines,
+      outputTopics: outputTopicLines,
+      outputDataNames,
+      hz: flow?.hz || DEFAULT_HZ,
+      msgDataCache: msgDataCache || null,
+      startTimeNs: startTimeNs || null,
+      selectedExecutors,
+    });
+    attributionStepper = createStepper(atContainer, ALL_STAGES, session);
   }
 
-  function showClassic() {
-    atContainer.style.display = 'none';
-    classicBody.style.display = 'flex';
-    modeAttrBtn.classList.remove('active');
-    modeClassicBtn.classList.add('active');
+  // Map data names to topics for the current process
+  function dataNameToTopic(dataName, direction) {
+    const proc = nexisConfig.processes?.[nodeId];
+    if (!proc) { return dataName; }
+    const list = direction === 'sub' ? proc.sub : proc.pub;
+    for (const entry of (list || [])) {
+      if (entry.dataName === dataName) { return entry.topic; }
+    }
+    return dataName;
   }
 
-  modeAttrBtn.addEventListener('click', showAttribution);
-  modeClassicBtn.addEventListener('click', showClassic);
-  showAttribution();
-  el.querySelector('#rt-run').addEventListener('click', () => startTest(false));
-  el.querySelector('#rt-rebuild').addEventListener('click', () => startTest(true));
+  // Update left panel when executor selection changes
+  function updateLeftPanelFromExecutor() {
+    const selected = execSelector.getSelected();
 
+    if (selected.length === 0) {
+      soInput.value = '';
+      classInput.value = '';
+      configInput.value = '';
+      inputTopicsEl.value = '';
+      outputTopicsEl.value = '';
+      return;
+    }
+
+    const primary = selected[0];
+    if (primary.libName) { soInput.value = `${LIB_DIR}/${primary.libName}`; }
+    if (primary.className) { classInput.value = primary.className; }
+    if (primary.cfgFiles?.length > 0) { configInput.value = primary.cfgFiles.join('\n'); }
+
+    inputTopicsEl.value = (primary.inputs || []).map(dn => dataNameToTopic(dn, 'sub')).join('\n');
+    outputTopicsEl.value = (primary.outputs || []).map(dn => dataNameToTopic(dn, 'pub')).join('\n');
+  }
+
+  // Initial panel sync
+  updateLeftPanelFromExecutor();
+
+  initStepper();
+
+  // Classic mode functions stubbed out (UI elements removed, stepper handles everything)
   let ws = null;
   let allFrameTimes = [];
 
-  function getSelectedHz() {
-    const val = hzSelect.value;
-    return val === 'auto' ? detectFrameHz(nodeId) : parseInt(val, 10);
-  }
-
-  function setStatus(text, cls) {
-    statusEl.textContent = text;
-    statusEl.className = 'rt-status' + (cls ? ' ' + cls : '');
-  }
-
-  function appendLog(level, text) {
-    const row = document.createElement('div');
-    row.className = `rt-log-row ${level}`;
-    row.textContent = text;
-    logEl.appendChild(row);
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-
-  function setProgress(current, total, label) {
-    progressArea.style.display = 'block';
-    const pct = total > 0 ? (current / total * 100) : 0;
-    progressFill.style.width = pct + '%';
-    progressText.textContent = label || `${current} / ${total}`;
-  }
+  function getSelectedHz() { return detectFrameHz(nodeId); }
+  function setStatus() {}
+  function appendLog() {}
+  function setProgress() {}
 
   function updateSummary() {
-    summaryEl.style.display = 'flex';
+    return; // Classic UI removed; stepper handles display
+    /* eslint-disable no-unreachable */
     const pass = allFrameTimes.filter(t => t.ok).length;
     const fail = allFrameTimes.length - pass;
     const times = allFrameTimes.map(t => t.ms);
@@ -419,8 +391,9 @@ export async function createReplayTestView(container, opts) {
   }
 
   function renderFlameGraph() {
+    return; // Classic UI removed; stepper S5 handles flamegraph
+    /* eslint-disable no-unreachable */
     if (allFrameTimes.length === 0) return;
-    flameArea.style.display = 'block';
     const canvas = flameCanvas;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
@@ -464,11 +437,7 @@ export async function createReplayTestView(container, opts) {
 
   async function startTest(buildFirst) {
     setStatus('Connecting...', '');
-    logEl.innerHTML = '';
     allFrameTimes = [];
-    summaryEl.style.display = 'none';
-    flameArea.style.display = 'none';
-    progressArea.style.display = 'none';
 
     ws = new WebSocket(WS_URL);
 
@@ -538,7 +507,6 @@ export async function createReplayTestView(container, opts) {
       if (msg.type === 'harness_exit') {
         setStatus('Test complete', 'ok');
         appendLog('info', `Harness exited (code=${msg.code})`);
-        progressArea.style.display = 'none';
         updateSummary();
         renderFlameGraph();
         return;

@@ -141,5 +141,5 @@ export function buildTopologyFromChannels(mcapChannels) {
     if (tgt) tgt.subCount += link.topics.length;
   }
 
-  return { nodes, links, LAYER_MAP: layerMap };
+  return { nodes, links, LAYER_MAP: layerMap, topicToSubscribers: topicToSubscribers || {} };
 }

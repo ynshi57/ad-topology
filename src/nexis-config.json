@@ -1603,12 +1603,6 @@
     }
   },
   "executorTasks": {
-    "BusEmitter": {
-      "taskName": "fsm_transition_debug",
-      "libName": "libnexis_ds.so",
-      "cfgFiles": [],
-      "sourceFile": "state_machine.pbtxt"
-    },
     "FaultManagerExecutor": {
       "taskName": "fault_manager_execuotr",
       "libName": "libsystem_monitor.so",
@@ -1623,12 +1617,6 @@
       "cfgFiles": [
         "/home/caros/workspace/canbus/conf/canbus_config.json"
       ],
-      "sourceFile": "canbus.pbtxt"
-    },
-    "CanbusEmitter": {
-      "taskName": "can_cmd_light",
-      "libName": "libnexis_ds.so",
-      "cfgFiles": [],
       "sourceFile": "canbus.pbtxt"
     },
     "CommonManagerExecutor": {
@@ -1744,5 +1732,665 @@
       ],
       "sourceFile": "state_machine.pbtxt"
     }
+  },
+  "processExecutors": {
+    "alarm": [
+      {
+        "taskName": "fault_manager_execuotr",
+        "className": "FaultManagerExecutor",
+        "libName": "libsystem_monitor.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/fault_process_table.pbtxt"
+        ],
+        "inputs": [
+          "local_alarm_state_fault"
+        ],
+        "outputs": [
+          "fault_process_data"
+        ]
+      }
+    ],
+    "canbus": [
+      {
+        "taskName": "canbus_executor",
+        "className": "CanbusExecutor",
+        "libName": "libcanbus_executor.so",
+        "cfgFiles": [
+          "/home/caros/workspace/canbus/conf/canbus_config.json"
+        ],
+        "inputs": [
+          "can_car_status",
+          "cb_aeb_cmd",
+          "cb_pnc_control",
+          "cb_patrol_discode",
+          "cb_localization_pose",
+          "cb_horn_light_cmd",
+          "cb_pilot_state",
+          "cb_auto_driver_status",
+          "cb_vehicle_self_clean",
+          "cb_environment_monitor",
+          "cb_state_machine"
+        ],
+        "outputs": [
+          "canbus_timestamp",
+          "can_cmd_aeb",
+          "can_cmd_brake",
+          "can_cmd_imu",
+          "can_cmd_drive",
+          "can_cmd_eps",
+          "can_cmd_park",
+          "can_cmd_light"
+        ]
+      }
+    ],
+    "common_manager": [
+      {
+        "taskName": "common_manager_executor",
+        "className": "CommonManagerExecutor",
+        "libName": "libcommon_manager_nexis.so",
+        "cfgFiles": [],
+        "inputs": [],
+        "outputs": []
+      }
+    ],
+    "lfc": [
+      {
+        "taskName": "lfc_executor",
+        "className": "LfcNexisExecutor",
+        "libName": "liblidar_freespace_component.so",
+        "cfgFiles": [
+          "/home/caros/adu/calibration.json",
+          "/home/caros/cyberrt/conf/lfc_config.yaml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "front_lidar",
+          "prediction_obstacles"
+        ],
+        "outputs": [
+          "lidar_freespace"
+        ]
+      }
+    ],
+    "localization": [
+      {
+        "taskName": "inspvax_gnss_localization_executor",
+        "className": "InspvaxGnssLocalizationExecutor",
+        "libName": "libinspvax_gnss_localization_executor.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/locator_optimizer_model.yaml",
+          "/home/caros/cyberrt/conf/igod_ndt_localization_config.yaml",
+          "/home/caros/data/ndt_map"
+        ],
+        "inputs": [
+          "loc_imu",
+          "loc_bestgnsspos",
+          "loc_bestgnssvel",
+          "loc_heading",
+          "loc_vehicle_speed",
+          "top_lidar",
+          "loc_state_machine",
+          "loc_obj_detection"
+        ],
+        "outputs": [
+          "loc_msf_pose",
+          "loc_msf_pose_02",
+          "loc_msf_pose_delta",
+          "loc_msf_pose_utm",
+          "loc_ndt_pointcloud"
+        ]
+      },
+      {
+        "taskName": "dead_reckoning_localization_executor",
+        "className": "DeadReckoningLocalizationExecutor",
+        "libName": "libdead_reckoning_localization_executor.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/dead_reckoning_model.yaml"
+        ],
+        "inputs": [
+          "loc_imu",
+          "loc_canbus",
+          "loc_msf_pose",
+          "loc_bestgnssvel",
+          "loc_heading",
+          "loc_control_cmd"
+        ],
+        "outputs": [
+          "loc_vehicle_speed"
+        ]
+      }
+    ],
+    "map_router": [
+      {
+        "taskName": "traffic_light_detection_executor",
+        "className": "TrafficLightDetectionExecutor",
+        "libName": "libmaprouter_exector_tld.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/neo_tld.yaml"
+        ],
+        "inputs": [],
+        "outputs": [
+          "traffic_light_detection_post_process"
+        ]
+      },
+      {
+        "taskName": "neo_rec_static_executor",
+        "className": "NeoRecStaticExecutor",
+        "libName": "libmaprouter_exector_rec_static.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/neo_rec_static.yaml"
+        ],
+        "inputs": [],
+        "outputs": [
+          "perception_static"
+        ]
+      },
+      {
+        "taskName": "neo_parking_executor",
+        "className": "NeoParkingExecutor",
+        "libName": "libmaprouter_exector_parking.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/neo_parking.yaml"
+        ],
+        "inputs": [
+          "occ_infer",
+          "v",
+          "rod_infer",
+          "v",
+          "map_router_state_machine",
+          "map_router_end_trajectory",
+          "map_router_bev_map",
+          "obj_infer",
+          "lane_seg_infer",
+          "parking_prediction",
+          "canbus_pub_chassis"
+        ],
+        "outputs": [
+          "parking_occ_fusion",
+          "parking_rod_output"
+        ]
+      },
+      {
+        "taskName": "neo_map_router_executor",
+        "className": "MapRouterExecutor",
+        "libName": "libmaprouter_exector_map_router.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/map_router.yaml"
+        ],
+        "inputs": [
+          "map_router_bev_map",
+          "map_router_sd_location",
+          "map_router_sd_guide",
+          "map_router_sd_route",
+          "map_router_neo_map",
+          "map_router_state_machine",
+          "map_router_dynamic_layer",
+          "map_router_end_trajectory",
+          "map_router_odom",
+          "map_router_ins",
+          "map_router_rod",
+          "map_router_navi_request_info"
+        ],
+        "outputs": [
+          "map_router_output",
+          "map_router_local_map_debug",
+          "map_router_navi_cache"
+        ]
+      }
+    ],
+    "model_infer": [
+      {
+        "taskName": "one_model_infer",
+        "className": "OneModelNexisExecutor",
+        "libName": "libmodel_infer.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/one_model_executor_conf.yml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "d",
+          "front_lidar",
+          "d",
+          "camera_0",
+          "d",
+          "camera_1",
+          "d",
+          "camera_2",
+          "d",
+          "camera_3",
+          "d",
+          "camera_4",
+          "d",
+          "camera_5",
+          "d",
+          "camera_6",
+          "d",
+          "camera_7",
+          "d",
+          "camera_8",
+          "d",
+          "camera_9",
+          "d",
+          "camera_10",
+          "d",
+          "camera_11",
+          "d"
+        ],
+        "outputs": [
+          "obj_infer",
+          "maptr_infer",
+          "tld_infer",
+          "occ_infer",
+          "parking_occ_infer",
+          "rod_infer",
+          "lane_seg_infer"
+        ]
+      },
+      {
+        "taskName": "prediction_infer",
+        "className": "PredictionNexisExecutor",
+        "libName": "libmodel_infer.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/prediction_executor_conf.yml"
+        ],
+        "inputs": [
+          "obj_infer",
+          "d"
+        ],
+        "outputs": [
+          "prediction"
+        ]
+      }
+    ],
+    "online_calibration": [
+      {
+        "taskName": "online_calibration",
+        "className": "OnlineCalibNexisExecutor",
+        "libName": "libonline_calibration.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/online_calibration_config/online_calib_nexis_executor.yaml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "d",
+          "front_lidar",
+          "d",
+          "camera_0",
+          "d",
+          "camera_1",
+          "d",
+          "camera_2",
+          "d",
+          "camera_3",
+          "d",
+          "camera_4",
+          "d",
+          "camera_5",
+          "d",
+          "camera_6",
+          "d",
+          "camera_7",
+          "d",
+          "camera_8",
+          "d",
+          "camera_9",
+          "d",
+          "camera_10",
+          "d",
+          "camera_11",
+          "d"
+        ],
+        "outputs": []
+      },
+      {
+        "taskName": "after_sale_calibration",
+        "className": "AfterSaleCalibNexisExecutor",
+        "libName": "libafter_sales_calibration.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/after_sales_calibration_config/after_sale_calib_nexis_executor.yaml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "d",
+          "front_lidar",
+          "d",
+          "camera_0",
+          "d",
+          "camera_1",
+          "d",
+          "camera_2",
+          "d",
+          "camera_3",
+          "d",
+          "camera_4",
+          "d",
+          "camera_5",
+          "d",
+          "camera_6",
+          "d",
+          "camera_7",
+          "d",
+          "camera_8",
+          "d",
+          "camera_9",
+          "d",
+          "camera_10",
+          "d",
+          "camera_11",
+          "d"
+        ],
+        "outputs": []
+      },
+      {
+        "taskName": "factory_calibration",
+        "className": "FactoryCalibNexisExecutor",
+        "libName": "libfactory_calibration.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/factory_calibration_config/factory_calib_nexis_executor.yaml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "d",
+          "front_lidar",
+          "d",
+          "camera_0",
+          "d",
+          "camera_1",
+          "d",
+          "camera_2",
+          "d",
+          "camera_3",
+          "d",
+          "camera_4",
+          "d",
+          "camera_5",
+          "d",
+          "camera_6",
+          "d",
+          "camera_7",
+          "d",
+          "camera_8",
+          "d",
+          "camera_9",
+          "d",
+          "camera_10",
+          "d",
+          "camera_11",
+          "d"
+        ],
+        "outputs": []
+      }
+    ],
+    "state_machine": [
+      {
+        "taskName": "state_machine_executor",
+        "className": "StateMachineNexisExecutor",
+        "libName": "libstate_machine.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/fsm_config.yaml"
+        ],
+        "inputs": [
+          "fsm_dispatch_request",
+          "fsm_extricate_response",
+          "fsm_planning_state",
+          "fsm_collision_request",
+          "fsm_router_output",
+          "fsm_aeb_cmd",
+          "fsm_vehicle_area_status",
+          "fsm_dynamic_layers_on_path",
+          "fsm_operation_areas_on_path",
+          "fsm_driving_trajectory",
+          "fsm_parking_trajectory",
+          "fsm_vehicle_clean",
+          "fsm_chassis",
+          "fsm_localization",
+          "fsm_control",
+          "fsm_utm_pose",
+          "fsm_sys_monitor",
+          "fsm_vlm_response"
+        ],
+        "outputs": [
+          "fsm_pilot_state",
+          "fsm_notify",
+          "fsm_extricate_request",
+          "fsm_dispatch_result",
+          "fsm_event_info",
+          "fsm_zone_report",
+          "fsm_transition",
+          "fsm_transition_debug"
+        ]
+      }
+    ],
+    "x86_model_infer": [
+      {
+        "taskName": "x86_one_model_infer",
+        "className": "OneModelNexisExecutor",
+        "libName": "libmodel_infer.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/one_model_executor_conf_x86.yml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "d",
+          "front_lidar",
+          "d",
+          "x86_camera_0",
+          "d",
+          "x86_camera_1",
+          "d",
+          "x86_camera_2",
+          "d",
+          "x86_camera_3",
+          "d",
+          "x86_camera_4",
+          "d",
+          "x86_camera_5",
+          "d",
+          "x86_camera_6",
+          "d",
+          "x86_camera_7",
+          "d",
+          "x86_camera_8",
+          "d",
+          "x86_camera_9",
+          "d",
+          "x86_camera_10",
+          "d",
+          "x86_camera_11",
+          "d"
+        ],
+        "outputs": [
+          "obj_infer",
+          "maptr_infer",
+          "tld_infer",
+          "occ_infer",
+          "parking_occ_infer",
+          "rod_infer",
+          "lane_seg_infer"
+        ]
+      }
+    ],
+    "fault_manager": [
+      {
+        "taskName": "fault_manager_execuotr",
+        "className": "FaultManagerExecutor",
+        "libName": "libsystem_monitor.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/fault_process_table.pbtxt"
+        ],
+        "inputs": [
+          "local_alarm_state_fault"
+        ],
+        "outputs": [
+          "fault_process_data"
+        ]
+      }
+    ],
+    "neo_canbus": [
+      {
+        "taskName": "canbus_executor",
+        "className": "CanbusExecutor",
+        "libName": "libcanbus_executor.so",
+        "cfgFiles": [
+          "/home/caros/workspace/canbus/conf/canbus_config.json"
+        ],
+        "inputs": [
+          "can_car_status",
+          "cb_aeb_cmd",
+          "cb_pnc_control",
+          "cb_patrol_discode",
+          "cb_localization_pose",
+          "cb_horn_light_cmd",
+          "cb_pilot_state",
+          "cb_auto_driver_status",
+          "cb_vehicle_self_clean",
+          "cb_environment_monitor",
+          "cb_state_machine"
+        ],
+        "outputs": [
+          "canbus_timestamp",
+          "can_cmd_aeb",
+          "can_cmd_brake",
+          "can_cmd_imu",
+          "can_cmd_drive",
+          "can_cmd_eps",
+          "can_cmd_park",
+          "can_cmd_light"
+        ]
+      }
+    ],
+    "lidar_freespace": [
+      {
+        "taskName": "lfc_executor",
+        "className": "LfcNexisExecutor",
+        "libName": "liblidar_freespace_component.so",
+        "cfgFiles": [
+          "/home/caros/adu/calibration.json",
+          "/home/caros/cyberrt/conf/lfc_config.yaml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "front_lidar",
+          "prediction_obstacles"
+        ],
+        "outputs": [
+          "lidar_freespace"
+        ]
+      }
+    ],
+    "location": [
+      {
+        "taskName": "inspvax_gnss_localization_executor",
+        "className": "InspvaxGnssLocalizationExecutor",
+        "libName": "libinspvax_gnss_localization_executor.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/locator_optimizer_model.yaml",
+          "/home/caros/cyberrt/conf/igod_ndt_localization_config.yaml",
+          "/home/caros/data/ndt_map"
+        ],
+        "inputs": [
+          "loc_imu",
+          "loc_bestgnsspos",
+          "loc_bestgnssvel",
+          "loc_heading",
+          "loc_vehicle_speed",
+          "top_lidar",
+          "loc_state_machine",
+          "loc_obj_detection"
+        ],
+        "outputs": [
+          "loc_msf_pose",
+          "loc_msf_pose_02",
+          "loc_msf_pose_delta",
+          "loc_msf_pose_utm",
+          "loc_ndt_pointcloud"
+        ]
+      },
+      {
+        "taskName": "dead_reckoning_localization_executor",
+        "className": "DeadReckoningLocalizationExecutor",
+        "libName": "libdead_reckoning_localization_executor.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/dead_reckoning_model.yaml"
+        ],
+        "inputs": [
+          "loc_imu",
+          "loc_canbus",
+          "loc_msf_pose",
+          "loc_bestgnssvel",
+          "loc_heading",
+          "loc_control_cmd"
+        ],
+        "outputs": [
+          "loc_vehicle_speed"
+        ]
+      }
+    ]
+  },
+  "executorDependencies": {
+    "localization": [
+      {
+        "from": "DeadReckoningLocalizationExecutor",
+        "to": "InspvaxGnssLocalizationExecutor",
+        "topic": "/localization/100hz/localization_vehicle_speed",
+        "fromData": "loc_vehicle_speed",
+        "toData": "loc_vehicle_speed"
+      },
+      {
+        "from": "InspvaxGnssLocalizationExecutor",
+        "to": "DeadReckoningLocalizationExecutor",
+        "topic": "/localization/100hz/inspvax_gnss_msf",
+        "fromData": "loc_msf_pose",
+        "toData": "loc_msf_pose"
+      }
+    ],
+    "map_router": [
+      {
+        "from": "NeoRecStaticExecutor",
+        "to": "NeoParkingExecutor",
+        "topic": "/perception/static",
+        "fromData": "perception_static",
+        "toData": "map_router_bev_map"
+      },
+      {
+        "from": "NeoRecStaticExecutor",
+        "to": "MapRouterExecutor",
+        "topic": "/perception/static",
+        "fromData": "perception_static",
+        "toData": "map_router_bev_map"
+      },
+      {
+        "from": "NeoParkingExecutor",
+        "to": "MapRouterExecutor",
+        "topic": "/perception/rod_output",
+        "fromData": "parking_rod_output",
+        "toData": "map_router_rod"
+      }
+    ],
+    "model_infer": [
+      {
+        "from": "OneModelNexisExecutor",
+        "to": "PredictionNexisExecutor",
+        "topic": "/perception/obj_infer",
+        "fromData": "obj_infer",
+        "toData": "obj_infer"
+      }
+    ],
+    "location": [
+      {
+        "from": "DeadReckoningLocalizationExecutor",
+        "to": "InspvaxGnssLocalizationExecutor",
+        "topic": "/localization/100hz/localization_vehicle_speed",
+        "fromData": "loc_vehicle_speed",
+        "toData": "loc_vehicle_speed"
+      },
+      {
+        "from": "InspvaxGnssLocalizationExecutor",
+        "to": "DeadReckoningLocalizationExecutor",
+        "topic": "/localization/100hz/inspvax_gnss_msf",
+        "fromData": "loc_msf_pose",
+        "toData": "loc_msf_pose"
+      }
+    ]
   }
 }

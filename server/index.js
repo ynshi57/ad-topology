@@ -131,6 +131,16 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/perf-start' && req.method === 'POST') {
+    await handlePerfStart(req, res);
+    return;
+  }
+
+  if (req.url === '/perf-stop' && req.method === 'POST') {
+    await handlePerfStop(req, res);
+    return;
+  }
+
   if (req.url === '/agent-output-write' && req.method === 'POST') {
     await handleAgentOutputWrite(req, res);
     return;
@@ -664,8 +674,8 @@ async function handlePerfSample(req, res) {
     }
 
     const scriptResult = await runShellCmd(
-      `${perfBin} script -i ${perfDataPath} | perl ${STACKCOLLAPSE}`,
-      30000,
+      `LD_LIBRARY_PATH="/home/caros/cyberrt/lib:/home/caros/workspace/gears/x86_64/lib:$LD_LIBRARY_PATH" ${perfBin} script --no-demangle -i ${perfDataPath} | c++filt | perl ${STACKCOLLAPSE}`,
+      60000,
     );
 
     cleanup(perfDataPath);
@@ -738,6 +748,112 @@ function runShellCmd(cmd, timeoutMs) {
       });
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// perf-start / perf-stop: async perf recording during S2 replay
+// ---------------------------------------------------------------------------
+
+let activePerfSession = null; // { proc, dataPath, pid }
+
+async function handlePerfStart(req, res) {
+  let body = '';
+  for await (const chunk of req) { body += chunk.toString(); }
+  let payload;
+  try { payload = body ? JSON.parse(body) : {}; } catch { payload = {}; }
+
+  const pid = payload.pid;
+  if (!pid || !Number.isFinite(pid)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'pid required' }));
+    return;
+  }
+
+  const perfBin = findPerfBin();
+  if (!perfBin) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'perf not installed' }));
+    return;
+  }
+
+  if (activePerfSession) {
+    try { activePerfSession.proc.kill('SIGINT'); } catch {}
+    cleanup(activePerfSession.dataPath);
+    activePerfSession = null;
+  }
+
+  const dataPath = join(tmpdir(), `ad-topo-perf-${pid}-${Date.now()}.data`);
+  const freq = payload.freq || 99;
+
+  const proc = spawn(perfBin, [
+    'record', '-F', String(freq), '-g', '--call-graph', 'fp',
+    '-p', String(pid), '-o', dataPath,
+  ], { env: ENV, stdio: ['ignore', 'pipe', 'pipe'] });
+
+  activePerfSession = { proc, dataPath, pid };
+
+  // Give perf a moment to attach
+  await new Promise(r => setTimeout(r, 500));
+
+  console.log(`[perf-start] attached to pid=${pid}, freq=${freq}, output=${dataPath}`);
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: true, pid, dataPath }));
+}
+
+async function handlePerfStop(_req, res) {
+  if (!activePerfSession) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'No active perf session' }));
+    return;
+  }
+
+  const { proc, dataPath, pid } = activePerfSession;
+  activePerfSession = null;
+
+  // Send SIGINT to perf to stop recording gracefully
+  try { proc.kill('SIGINT'); } catch {}
+
+  // Wait for perf to finish writing
+  await new Promise((resolve) => {
+    const timeout = setTimeout(() => { try { proc.kill('SIGTERM'); } catch {} resolve(); }, 5000);
+    proc.on('close', () => { clearTimeout(timeout); resolve(); });
+  });
+
+  if (!existsSync(dataPath) || statSync(dataPath).size === 0) {
+    cleanup(dataPath);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'perf record produced no data' }));
+    return;
+  }
+
+  const perfBin = findPerfBin();
+  // Use --symfs to help perf resolve symbols in .so files loaded via RPATH.
+  // Also set LD_LIBRARY_PATH so perf can find the .so by SONAME.
+  const scriptResult = await runShellCmd(
+    `LD_LIBRARY_PATH="/home/caros/cyberrt/lib:/home/caros/workspace/gears/x86_64/lib:$LD_LIBRARY_PATH" ${perfBin} script --no-demangle -i ${dataPath} | c++filt | perl ${STACKCOLLAPSE}`,
+    60000,
+  );
+
+  cleanup(dataPath);
+
+  if (!scriptResult.stdout) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'stackcollapse produced no output', stderr: scriptResult.stderr?.slice(-500) }));
+    return;
+  }
+
+  const foldedLines = scriptResult.stdout.trim().split('\n').filter(Boolean);
+  const stacks = foldedLines.map(line => {
+    const lastSpace = line.lastIndexOf(' ');
+    return lastSpace < 0
+      ? { stack: line, count: 1 }
+      : { stack: line.slice(0, lastSpace), count: parseInt(line.slice(lastSpace + 1), 10) || 1 };
+  });
+  const totalSamples = stacks.reduce((sum, s) => sum + s.count, 0);
+
+  console.log(`[perf-stop] pid=${pid}, samples=${totalSamples}, stacks=${stacks.length}`);
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ pid, totalSamples, foldedStacks: scriptResult.stdout.trim(), stacks }));
 }
 
 function cleanup(filePath) {

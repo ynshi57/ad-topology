@@ -53,8 +53,8 @@ export function createStepper(container, stages, ctx) {
         }).join('<div class="at-step-line"></div>')}
       </div>
       <div class="at-controls">
-        <button class="at-btn at-btn-primary" id="at-run-all" ${running ? 'disabled' : ''}>Run All</button>
-        <button class="at-btn" id="at-rerun-failed" ${running ? 'disabled' : ''}>Rerun Failed</button>
+        <button class="at-btn at-btn-primary" id="at-run-all" ${running || !ctx.className ? 'disabled' : ''}>Run All</button>
+        <button class="at-btn" id="at-rerun-failed" ${running || !ctx.className ? 'disabled' : ''}>Rerun Failed</button>
       </div>
       <div class="at-stages-area" id="at-stages-area"></div>
     `;
@@ -148,7 +148,10 @@ export function createStepper(container, stages, ctx) {
 
     for (let i = 0; i < stages.length; i++) {
       const status = await runStage(stages[i]);
-      if (status === 'failed') {
+      // Only S1 (Load) failure should short-circuit the entire pipeline.
+      // Other stages (S2-S5) may fail but subsequent stages should still run
+      // to collect as much diagnostic information as possible.
+      if (status === 'failed' && stages[i].id === 'S1') {
         for (let j = i + 1; j < stages.length; j++) {
           state[stages[j].id].status = 'skipped';
         }

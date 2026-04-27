@@ -69,7 +69,16 @@ export default {
       }
     }
 
-    const evidence = { topicStats, missingRequired, stderrLines: ctx.stderrLines };
+    const optionalDataNames = new Set(flow?.optionalInputs || []);
+    const missingOptional = [];
+    for (const dn of optionalDataNames) {
+      const topic = dataNameToTopic.get(dn);
+      if (topic && topicStats[topic] && topicStats[topic].count === 0) {
+        missingOptional.push(dn);
+      }
+    }
+
+    const evidence = { topicStats, missingRequired, missingOptional, stderrLines: ctx.stderrLines };
     ctx.setEvidence('S3', 'topicStats', topicStats);
     ctx.setEvidence('S3', 'missingRequired', missingRequired);
 
@@ -81,32 +90,68 @@ export default {
     const warnings = findings.filter(f => f.severity === 'warn').map(f => f.finding);
     const errors = findings.filter(f => f.severity === 'error');
 
-    const channels = Object.entries(topicStats).map(([topic, s]) => ({
-      topic,
-      count: s.count,
-      hz: s.actualHz,
-      healthy: s.count > 0,
-    }));
+    const topicToPublisher = nexisConfig.topicToPublisher || {};
+    const topicToDataName = new Map();
+    if (proc) {
+      for (const sub of proc.sub || []) {
+        if (sub.topic && sub.dataName) {
+          topicToDataName.set(sub.topic, sub.dataName);
+        }
+      }
+    }
+    const channels = Object.entries(topicStats).map(([topic, s]) => {
+      const dn = topicToDataName.get(topic) || '';
+      const isRequired = requiredDataNames.has(dn);
+      const isOptional = optionalDataNames.has(dn);
+      return {
+        topic,
+        count: s.count,
+        hz: s.actualHz,
+        healthy: s.count > 0 || isOptional,
+        publisher: topicToPublisher[topic] || 'unknown',
+      };
+    });
 
     return {
       status: errors.length > 0 ? 'failed' : warnings.length > 0 ? 'warn' : 'passed',
       channels,
       missingRequired,
+      missingOptional,
       warnings,
       findings,
     };
   },
 
   render(el, result) {
-    const rows = (result.channels || []).map(ch => {
-      const cls = ch.healthy ? 'at-health-ok' : 'at-health-bad';
-      const bar = ch.healthy ? '\u2588'.repeat(Math.min(Math.ceil(ch.hz / 5), 10)) : '\u2588';
-      return `<div class="at-health-row ${cls}">
-        <span class="at-health-indicator">${ch.healthy ? '\u25CF' : '\u26A0'}</span>
-        <span class="at-health-topic">${esc(ch.topic)}</span>
-        <span class="at-health-hz">${ch.hz} Hz</span>
-        <span class="at-health-count">${ch.count} msgs</span>
-        <span class="at-health-bar">${bar}</span>
+    // Group channels by publisher
+    const byPublisher = {};
+    for (const ch of (result.channels || [])) {
+      const pub = ch.publisher || 'unknown';
+      if (!byPublisher[pub]) { byPublisher[pub] = []; }
+      byPublisher[pub].push(ch);
+    }
+
+    const rows = Object.entries(byPublisher).sort((a, b) => a[0].localeCompare(b[0])).map(([pub, chs]) => {
+      const allHealthy = chs.every(c => c.healthy);
+      const pubCls = allHealthy ? 'at-health-pub-ok' : 'at-health-pub-warn';
+      const topicRows = chs.map(ch => {
+        const cls = ch.healthy ? 'at-health-ok' : 'at-health-bad';
+        const bar = ch.healthy ? '\u2588'.repeat(Math.min(Math.ceil(ch.hz / 5), 10)) : '\u2588';
+        return `<div class="at-health-row ${cls}">
+          <span class="at-health-indicator">${ch.healthy ? '\u25CF' : '\u26A0'}</span>
+          <span class="at-health-topic">${esc(ch.topic)}</span>
+          <span class="at-health-hz">${ch.hz} Hz</span>
+          <span class="at-health-count">${ch.count} msgs</span>
+          <span class="at-health-bar">${bar}</span>
+        </div>`;
+      }).join('');
+      return `<div class="at-health-pub-group ${pubCls}">
+        <div class="at-health-pub-header">
+          <span class="at-health-pub-dot"></span>
+          <span class="at-health-pub-name">${esc(pub)}</span>
+          <span class="at-health-pub-count">${chs.length}</span>
+        </div>
+        ${topicRows}
       </div>`;
     }).join('');
 

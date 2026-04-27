@@ -394,10 +394,11 @@ function parseTaskFiles(taskDir) {
       const typeMatch = body.match(/type\s*:\s*"([^"]+)"/);
 
       if (!classMatch || !libMatch) continue;
-      const taskType = typeMatch?.[1] || '';
-      if (taskType === 'capture' || taskType === 'emitter') continue;
-
+      const taskType = (typeMatch?.[1] || '').toLowerCase();
+      if (['capture', 'emitter', 'emit'].includes(taskType)) continue;
       const className = classMatch[1];
+      if (['BusCapture', 'BusEmitter', 'AlarmCapture'].includes(className)) continue;
+
       const libName = libMatch[1];
       const cfgFiles = cfgMatches.map(m => resolveCfgFile(m[1]));
 
@@ -410,6 +411,188 @@ function parseTaskFiles(taskDir) {
     }
   }
   return executorTasks;
+}
+
+// ========================================================================
+// 6. Parse process executors — multi-executor per process + dependency chain
+// ========================================================================
+
+function parseProcessExecutors(taskDir, flowDir) {
+  const processExecutors = {};
+  const executorDependencies = {};
+
+  if (!existsSync(taskDir)) return { processExecutors, executorDependencies };
+
+  // Step 1: Parse flow.d to get each executor's inputs and outputs from node lines
+  const flowNodeMap = {}; // taskName -> { inputs: [...], outputs: [...], bundleName }
+  if (existsSync(flowDir)) {
+    for (const file of readdirSync(flowDir).filter(f => f.endsWith('.pbtxt'))) {
+      const processName = file.replace('.pbtxt', '');
+      const content = readFileSync(join(flowDir, file), 'utf8');
+
+      // Parse node lines: "inputBundle << executorName >> output1 output2"
+      const nodeMatches = [...content.matchAll(/node\s*:\s*"([^"]+)"/g)];
+      for (const nm of nodeMatches) {
+        const nodeLine = nm[1].trim();
+        const execMatch = nodeLine.match(/^(\S+)\s+<<\s*(\S+)\s*>>\s*(.*)/);
+        if (!execMatch) continue;
+        const bundleName = execMatch[1];
+        const taskName = execMatch[2];
+        const outputsStr = execMatch[3].trim();
+        const outputs = outputsStr ? outputsStr.split(/\s+/).filter(Boolean).map(o => o.replace(/^!/, '')) : [];
+        flowNodeMap[taskName] = { bundleName, outputs, processName };
+      }
+
+      // Parse bundle lines to get inputs for each bundle
+      const bundleMatches = [...content.matchAll(/bundle\s*:\s*"([^"]+)"/g)];
+      for (const bm of bundleMatches) {
+        const bundleLine = bm[1].trim();
+        const parts = bundleLine.split('@');
+        if (parts.length < 2) continue;
+        const bundleName = parts[0].trim().split(/\s+/)[0];
+        const inputsPart = parts[1].trim();
+        const inputs = [...inputsPart.matchAll(/[!\[]?([a-zA-Z_][a-zA-Z0-9_]*)/g)]
+          .map(m => m[1])
+          .filter(Boolean);
+
+        // Attach inputs to the executor that uses this bundle
+        for (const [taskName, info] of Object.entries(flowNodeMap)) {
+          if (info.bundleName === bundleName) {
+            info.inputs = inputs;
+          }
+        }
+      }
+    }
+  }
+
+  // Step 2: Parse task.d to get executor metadata, filter to testable executors only
+  for (const file of readdirSync(taskDir).filter(f => f.endsWith('.pbtxt'))) {
+    const processName = file.replace('.pbtxt', '');
+    const content = readFileSync(join(taskDir, file), 'utf8');
+    const taskBlocks = [...content.matchAll(/\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g)];
+
+    const executors = [];
+
+    for (const block of taskBlocks) {
+      const body = block[1];
+      const nameMatch = body.match(/name\s*:\s*"([^"]+)"/);
+      const classMatch = body.match(/class_name\s*:\s*"([^"]+)"/);
+      const libMatch = body.match(/lib_name\s*:\s*"([^"]+)"/);
+      const typeMatch = body.match(/type\s*:\s*"([^"]+)"/);
+      const cfgMatches = [...body.matchAll(/cfg_file\s*:\s*"([^"]+)"/g)];
+
+      if (!classMatch || !libMatch) continue;
+      const taskType = (typeMatch?.[1] || '').toLowerCase();
+      const className = classMatch[1];
+      // Skip capture, emitter, emit types and known non-executor classes
+      if (['capture', 'emitter', 'emit'].includes(taskType)) continue;
+      if (['BusCapture', 'BusEmitter', 'AlarmCapture'].includes(className)) continue;
+
+      const taskName = nameMatch?.[1] || '';
+      const libName = libMatch[1];
+      const cfgFiles = cfgMatches.map(m => resolveCfgFile(m[1]));
+
+      const flowInfo = flowNodeMap[taskName] || {};
+
+      executors.push({
+        taskName,
+        className,
+        libName,
+        cfgFiles,
+        inputs: flowInfo.inputs || [],
+        outputs: flowInfo.outputs || [],
+      });
+    }
+
+    if (executors.length > 0) {
+      processExecutors[processName] = executors;
+    }
+  }
+
+  // Step 3: Infer dependencies via transport.pbtxt topic bridging.
+  // Two data names in different executors may map to the same topic, creating
+  // a dependency that cannot be seen from data names alone.
+  const NEXIS_DEPLOY = join(WORKSPACE, 'ad_dag/config/nexis/deploy');
+
+  for (const [processName, executors] of Object.entries(processExecutors)) {
+    const deps = []; // { from, to, topic, fromData, toData }
+
+    // Build dataName -> topic mapping from transport.pbtxt
+    const transportPath = join(NEXIS_DEPLOY, processName, 'transport.pbtxt');
+    const dataNameToTopic = {};   // dataName -> { topic, direction }
+    if (existsSync(transportPath)) {
+      const content = readFileSync(transportPath, 'utf8');
+      const blocks = [...content.matchAll(/transport\s*:\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g)];
+      for (const block of blocks) {
+        const body = block[1];
+        const nameMatch = body.match(/name\s*:\s*"([^"]+)"/);
+        const topicMatch = body.match(/topic\s*:\s*"([^"]+)"/);
+        if (!nameMatch || !topicMatch) continue;
+        const isPub = /pub\s*:/.test(body);
+        const isSub = /sub\s*:/.test(body);
+        dataNameToTopic[nameMatch[1]] = {
+          topic: topicMatch[1],
+          direction: isPub ? 'pub' : isSub ? 'sub' : 'unknown',
+        };
+      }
+    }
+
+    // Build output topic -> executor className mapping
+    const outputTopicToExec = {}; // topic -> { className, dataName }
+    for (const ex of executors) {
+      for (const outData of ex.outputs) {
+        const mapping = dataNameToTopic[outData];
+        if (mapping) {
+          outputTopicToExec[mapping.topic] = { className: ex.className, dataName: outData };
+        }
+      }
+    }
+
+    // Check each executor's inputs: if any input's topic matches an output topic
+    // from another executor in the same process, that's a dependency.
+    for (const ex of executors) {
+      for (const inpData of ex.inputs) {
+        const mapping = dataNameToTopic[inpData];
+        if (!mapping) continue;
+        const producer = outputTopicToExec[mapping.topic];
+        if (producer && producer.className !== ex.className) {
+          const existing = deps.find(d => d.from === producer.className && d.to === ex.className && d.topic === mapping.topic);
+          if (!existing) {
+            deps.push({
+              from: producer.className,
+              to: ex.className,
+              topic: mapping.topic,
+              fromData: producer.dataName,
+              toData: inpData,
+            });
+          }
+        }
+      }
+    }
+
+    // Fallback: also check direct data name matches (for processes without transport)
+    if (deps.length === 0) {
+      const outputMap = {};
+      for (const ex of executors) {
+        for (const out of ex.outputs) {
+          outputMap[out] = ex.className;
+        }
+      }
+      for (const ex of executors) {
+        for (const inp of ex.inputs) {
+          if (outputMap[inp] && outputMap[inp] !== ex.className) {
+            deps.push({ from: outputMap[inp], to: ex.className, topic: '', fromData: inp, toData: inp });
+          }
+        }
+      }
+    }
+
+    if (deps.length > 0) {
+      executorDependencies[processName] = deps;
+    }
+  }
+
+  return { processExecutors, executorDependencies };
 }
 
 // ========================================================================
@@ -514,6 +697,76 @@ if (cfgResolutionWarnings.length > 0) {
   }
 }
 
-const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows, executorTasks };
+// --- Parse process executors ---
+const { processExecutors, executorDependencies } = parseProcessExecutors(NEXIS_TASK, NEXIS_FLOW);
+console.log(`  ${Object.keys(processExecutors).length} processes with testable executors`);
+for (const [proc, execs] of Object.entries(processExecutors)) {
+  const deps = executorDependencies[proc] || [];
+  console.log(`    ${proc}: ${execs.map(e => e.className).join(', ')}${deps.length > 0 ? ` (${deps.length} deps)` : ''}`);
+}
+
+// --- Auto-alias: task.d names may differ from topology process names.
+// For each processExecutors key not in processes, try to find a matching
+// process by checking scene.pbtxt executor references or fuzzy name matching.
+const processNames = new Set(Object.keys(processes));
+const execKeysCopy = Object.keys(processExecutors).filter(k => !processNames.has(k));
+
+for (const taskKey of execKeysCopy) {
+  // Strategy 1: Check scene.pbtxt — if a deploy/<taskKey>/scene.pbtxt exists,
+  // its order lines reference executor names that appear in processExecutors[taskKey].
+  // The process name in the topology is whoever has those executors' pub/sub topics.
+  const execs = processExecutors[taskKey];
+  if (!execs || execs.length === 0) { continue; }
+
+  // Strategy 0: Known abbreviations (highest priority)
+  const KNOWN_ABBREVIATIONS = { 'lfc': 'lidar_freespace' };
+  let matched = null;
+  if (KNOWN_ABBREVIATIONS[taskKey] && processNames.has(KNOWN_ABBREVIATIONS[taskKey])) {
+    matched = KNOWN_ABBREVIATIONS[taskKey];
+  }
+
+  // Strategy 2: Find a process whose pub dataNames overlap with executor outputs.
+  if (!matched) {
+  for (const procName of processNames) {
+    // Check if the process sub/pub topics overlap with executor inputs/outputs
+    const proc = processes[procName];
+    if (!proc) { continue; }
+    const procSubTopics = new Set((proc.sub || []).map(s => s.topic));
+    // If any executor's input topic (resolved via transport) appears in process subs
+    for (const ex of execs) {
+      for (const outDataName of ex.outputs) {
+        const procPub = (proc.pub || []).find(p => p.dataName === outDataName);
+        if (procPub) { matched = procName; break; }
+      }
+      if (matched) { break; }
+    }
+    if (matched) { break; }
+  }
+  }
+
+  // Strategy 3: fuzzy name match
+  if (!matched) {
+    const kw = taskKey.replace(/_/g, '').toLowerCase();
+    for (const procName of processNames) {
+      const pkw = procName.replace(/_/g, '').toLowerCase();
+      if (kw.includes(pkw) || pkw.includes(kw) ||
+          kw.slice(0, 4) === pkw.slice(0, 4) ||
+          pkw.includes(kw.slice(0, 3))) {
+        matched = procName;
+        break;
+      }
+    }
+  }
+
+  if (matched && !processExecutors[matched]) {
+    processExecutors[matched] = processExecutors[taskKey];
+    if (executorDependencies[taskKey]) {
+      executorDependencies[matched] = executorDependencies[taskKey];
+    }
+    console.log(`  alias: ${taskKey} -> ${matched}`);
+  }
+}
+
+const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows, executorTasks, processExecutors, executorDependencies };
 writeFileSync(OUTPUT, JSON.stringify(config, null, 2));
 console.log(`\nWritten to ${OUTPUT}`);

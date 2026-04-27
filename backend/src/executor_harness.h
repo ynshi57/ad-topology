@@ -66,12 +66,39 @@ public:
     void reset();
     void unload();
 
+    // Multi-executor support: load multiple executors sequentially.
+    // Each gets its own .so + class + config. Returns per-executor load results.
+    struct MultiLoadResult {
+        std::string className;
+        bool success = false;
+        std::string error;
+    };
+    std::vector<MultiLoadResult> loadMultiple(const std::vector<HarnessConfig>& configs);
+
+    // Process a frame against all loaded executors independently.
+    // Returns one FrameResult per executor, in load order.
+    std::vector<FrameResult> processFrameMulti(const std::vector<FrameInput>& inputs);
+
+    int executorCount() const { return static_cast<int>(_entries.size()); }
+
 private:
+    // Single-executor (legacy) state
     void* _soHandle = nullptr;
     void* _executor = nullptr;
     void* _destroyFn = nullptr;
     bool _initialized = false;
     std::vector<std::string> _outputDataNames;
+
+    // Multi-executor state
+    struct ExecutorEntry {
+        std::string className;
+        void* soHandle = nullptr;
+        void* executor = nullptr;
+        bool initialized = false;
+        std::vector<std::string> outputDataNames;
+    };
+    std::vector<ExecutorEntry> _entries;
+    void unloadEntry(ExecutorEntry& entry);
 };
 
 } // namespace harness

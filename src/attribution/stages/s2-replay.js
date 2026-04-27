@@ -97,6 +97,21 @@ export default {
     console.log('[S2] Starting replay loop: requiredSet=', [...requiredSet], 'hz=', hz, 'totalMsgs=', rawMsgs.length);
     console.log('[S2] WS readyState=', ws.readyState, '(OPEN=1)');
 
+    // Start perf sampling in background if harness PID is available
+    if (ctx.harnessPid) {
+      try {
+        const perfResp = await fetch('http://localhost:8765/perf-start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pid: ctx.harnessPid, freq: 99 }),
+        });
+        const perfData = await perfResp.json();
+        console.log('[S2] perf-start:', perfData.ok ? 'attached' : perfData.error);
+      } catch (e) {
+        console.warn('[S2] perf-start failed:', e.message);
+      }
+    }
+
     while (tickTime <= endTime) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         console.warn('[S2] WS closed during replay, breaking');
@@ -174,6 +189,89 @@ export default {
       frameTimes,
       stderrLines,
     };
+    // Run perf_replay: send all frames as a batch to harness for tight-loop
+    // execution while perf is sampling, then stop perf.
+    if (ctx.harnessPid) {
+      try {
+        // Build batch frames from the last N frames (or all if small)
+        const batchSize = Math.min(totalFrames, 50);
+        const batchFrames = [];
+        const latestValues2 = new Map();
+        let cursor2 = 0;
+        let tick2 = rawMsgs[0].logTime;
+        let collected = 0;
+
+        while (tick2 <= rawMsgs[rawMsgs.length - 1].logTime && collected < batchSize) {
+          while (cursor2 < rawMsgs.length && rawMsgs[cursor2].logTime <= tick2) {
+            const msg = rawMsgs[cursor2];
+            const dataName = topicToDataName.get(msg.topic) || msg.topic.split('/').pop() || msg.topic;
+            const encoding = msg.schemaEncoding || 'protobuf';
+            const protoType = encoding === 'protobuf'
+              ? (topicToProto.get(msg.topic) || msg.schemaName || '') : '';
+            latestValues2.set(dataName, { data: msg.data, ts: msg.logTime, protoType, encoding });
+            cursor2++;
+          }
+
+          if (latestValues2.size > 0) {
+            const inputs = [];
+            for (const [name, val] of latestValues2) {
+              if (val.encoding && val.encoding !== 'protobuf') { continue; }
+              if (!val.protoType) { continue; }
+              inputs.push({
+                name,
+                timestamp_ns: Number(val.ts),
+                data_base64: uint8ToBase64(val.data),
+                proto_type: val.protoType,
+              });
+            }
+            if (inputs.length > 0) {
+              batchFrames.push({ timestamp_ns: Number(tick2), inputs });
+              collected++;
+            }
+          }
+          tick2 = tick2 + intervalNs;
+        }
+
+        if (batchFrames.length > 0) {
+          console.log('[S2] perf_replay: sending', batchFrames.length, 'frames x20 repeats');
+
+          const perfReplayPromise = new Promise((resolve) => {
+            const handler = (event) => {
+              const msg = JSON.parse(event.data);
+              if (msg.cmd === 'perf_replay_result') {
+                ws.removeEventListener('message', handler);
+                resolve(msg);
+              }
+            };
+            ws.addEventListener('message', handler);
+            setTimeout(() => { ws.removeEventListener('message', handler); resolve(null); }, 60000);
+          });
+
+          ws.send(JSON.stringify({
+            cmd: 'perf_replay',
+            frames: batchFrames,
+            repeat: 20,
+          }));
+
+          const perfReplayResult = await perfReplayPromise;
+          if (perfReplayResult) {
+            console.log('[S2] perf_replay done:', perfReplayResult.total_frames, 'frames,',
+                        perfReplayResult.avg_ms?.toFixed(3), 'ms avg');
+          }
+        }
+
+        // Now stop perf and collect results
+        const stopResp = await fetch('http://localhost:8765/perf-stop', { method: 'POST' });
+        if (stopResp.ok) {
+          const perfResult = await stopResp.json();
+          ctx.setEvidence('S5', 'perfFromS2', perfResult);
+          console.log('[S2] perf-stop: samples=', perfResult.totalSamples);
+        }
+      } catch (e) {
+        console.warn('[S2] perf collection failed:', e.message);
+      }
+    }
+
     ctx.setEvidence('S2', 'totalFrames', totalFrames);
     ctx.setEvidence('S2', 'okFrames', okFrames);
     ctx.setEvidence('S2', 'frameTimes', frameTimes);

@@ -317,6 +317,212 @@ void ExecutorHarness::unload() {
         dlclose(_soHandle);
         _soHandle = nullptr;
     }
+    for (auto& entry : _entries) {
+        unloadEntry(entry);
+    }
+    _entries.clear();
+}
+
+void ExecutorHarness::unloadEntry(ExecutorEntry& entry) {
+    if (entry.executor) {
+        auto* executor = static_cast<task::IExecutor*>(entry.executor);
+        if (entry.initialized) {
+            executor->release();
+        }
+        delete executor;
+        entry.executor = nullptr;
+    }
+    entry.initialized = false;
+    entry.outputDataNames.clear();
+    if (entry.soHandle) {
+        dlclose(entry.soHandle);
+        entry.soHandle = nullptr;
+    }
+}
+
+std::vector<ExecutorHarness::MultiLoadResult> ExecutorHarness::loadMultiple(
+    const std::vector<HarnessConfig>& configs) {
+    unload();
+    std::vector<MultiLoadResult> results;
+
+    static bool protoLibLoaded = false;
+    if (!protoLibLoaded) {
+        void* mh = dlopen("libcommon_message.so", RTLD_NOW | RTLD_GLOBAL);
+        if (mh) {
+            std::cerr << "[Harness] Loaded libcommon_message.so (multi)" << std::endl;
+        }
+        protoLibLoaded = true;
+    }
+
+    for (const auto& config : configs) {
+        MultiLoadResult mlr;
+        mlr.className = config.executorClass;
+
+        void* handle = dlopen(config.soPath.c_str(), RTLD_LAZY | RTLD_GLOBAL);
+        if (!handle) {
+            mlr.error = std::string("dlopen failed: ") + dlerror();
+            results.push_back(mlr);
+            continue;
+        }
+
+        try {
+            using CreateFnPtr = task::IExecutor*(*)(void);
+            auto createFn = FeatureClassFactory.createcb<CreateFnPtr>(config.executorClass);
+            if (!createFn) {
+                mlr.error = "No factory for class: " + config.executorClass;
+                dlclose(handle);
+                results.push_back(mlr);
+                continue;
+            }
+            auto* executor = createFn();
+            if (!executor) {
+                mlr.error = "Factory returned null for: " + config.executorClass;
+                dlclose(handle);
+                results.push_back(mlr);
+                continue;
+            }
+
+            auto status = executor->initial(config.configPaths);
+            if (status != task::ExecutorStatus::kReady) {
+                mlr.error = "initial() returned " + statusToString(status);
+                executor->release();
+                delete executor;
+                dlclose(handle);
+                results.push_back(mlr);
+                continue;
+            }
+
+            ExecutorEntry entry;
+            entry.className = config.executorClass;
+            entry.soHandle = handle;
+            entry.executor = executor;
+            entry.initialized = true;
+            entry.outputDataNames = config.outputDataNames;
+            _entries.push_back(std::move(entry));
+
+            mlr.success = true;
+        } catch (const std::exception& e) {
+            mlr.error = std::string("Exception: ") + e.what();
+            dlclose(handle);
+        }
+
+        results.push_back(mlr);
+    }
+
+    return results;
+}
+
+std::vector<FrameResult> ExecutorHarness::processFrameMulti(
+    const std::vector<FrameInput>& inputs) {
+    std::vector<FrameResult> results;
+
+    if (_entries.empty()) {
+        if (_executor && _initialized) {
+            results.push_back(processFrame(inputs));
+        }
+        return results;
+    }
+
+    for (auto& entry : _entries) {
+        FrameResult result;
+        result.timestampNs = inputs.empty() ? 0 : inputs[0].timestampNs;
+
+        if (!entry.executor || !entry.initialized) {
+            result.statusCode = -1;
+            result.statusName = "not_initialized";
+            result.errorMsg = entry.className + " not loaded";
+            result.processTimeMs = 0;
+            results.push_back(result);
+            continue;
+        }
+
+        auto* executor = static_cast<task::IExecutor*>(entry.executor);
+
+        std::vector<std::unique_ptr<google::protobuf::Message>> deserializedMsgs;
+        task::IExecutor::InputDataType inputMap;
+        bool firstInput = true;
+
+        for (const auto& fi : inputs) {
+            if (fi.protoData.empty() || fi.protoType.empty()) continue;
+
+            cmn::FacilityInl<cmn::Data>::Instance().push(fi.dataName);
+            ID dataId = NXFacility.idata(fi.dataName);
+            if (ID_IS_INVALID(dataId)) continue;
+
+            auto* pool = google::protobuf::DescriptorPool::generated_pool();
+            auto* desc = pool->FindMessageTypeByName(fi.protoType);
+            if (!desc) continue;
+            auto* factory = google::protobuf::MessageFactory::generated_factory();
+            auto* prototype = factory->GetPrototype(desc);
+            if (!prototype) continue;
+
+            auto msg = std::unique_ptr<google::protobuf::Message>(prototype->New());
+            if (!msg->ParseFromArray(fi.protoData.data(), static_cast<int>(fi.protoData.size()))) continue;
+
+            task::IExecutor::InputData id;
+            id.name = fi.dataName;
+            id.timestamp_ns = fi.timestampNs;
+            id.trigger = firstInput;
+            id.data = msg.get();
+            inputMap.emplace(dataId, std::move(id));
+            deserializedMsgs.push_back(std::move(msg));
+            firstInput = false;
+        }
+
+        if (inputMap.empty()) {
+            result.statusCode = 0;
+            result.statusName = "kSkipped";
+            result.processTimeMs = 0;
+            results.push_back(result);
+            continue;
+        }
+
+        task::IExecutor::OutputDataType outputMap;
+        std::vector<std::vector<uint8_t>> outputBuffers;
+        auto& onames = entry.outputDataNames;
+        if (onames.empty()) { onames.push_back("output"); }
+        for (const auto& oname : onames) {
+            outputBuffers.emplace_back(256 * 1024, 0);
+            task::IExecutor::OutputData od;
+            od.name = oname;
+            od.data = outputBuffers.back().data();
+            cmn::FacilityInl<cmn::Data>::Instance().push(oname);
+            ID oid = NXFacility.idata(oname);
+            outputMap.emplace(oid, std::move(od));
+        }
+
+        auto t0 = std::chrono::high_resolution_clock::now();
+        try {
+            auto status = executor->process(inputMap, outputMap);
+            auto t1 = std::chrono::high_resolution_clock::now();
+            result.statusCode = static_cast<int>(status);
+            result.statusName = statusToString(status);
+            result.processTimeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+            if (status != task::ExecutorStatus::kProcessOk) {
+                result.errorMsg = executor->error();
+            }
+        } catch (const std::exception& e) {
+            auto t1 = std::chrono::high_resolution_clock::now();
+            result.statusCode = -2;
+            result.statusName = "exception";
+            result.errorMsg = e.what();
+            result.processTimeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        }
+
+        result.outputJson = Json::Value(Json::objectValue);
+        result.outputJson["executor"] = entry.className;
+        for (auto& [key, od] : outputMap) {
+            Json::Value outEntry;
+            outEntry["name"] = od.name;
+            outEntry["timestamp_ns"] = Json::Value::UInt64(od.timestamp_ns);
+            outEntry["non_empty"] = (od.data != nullptr && od.timestamp_ns != 0);
+            result.outputJson[od.name] = outEntry;
+        }
+
+        results.push_back(result);
+    }
+
+    return results;
 }
 
 } // namespace harness
