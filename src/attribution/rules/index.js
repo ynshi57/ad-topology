@@ -75,6 +75,22 @@ const CAUSAL_TEMPLATES = [
       reduceWeight: ['output_empty'],
     },
   },
+  {
+    ifTags: ['upstream_gap'],
+    andIfTags: ['l2_output_threshold'],
+    infer: {
+      primary: 'upstream_gap',
+      message: 'L2 failure: missing upstream input causes trivial output (STANDBY)',
+      reduceWeight: ['l2_output_threshold', 'output_trivial'],
+    },
+  },
+  {
+    ifTags: ['l2_vpm_rate'],
+    infer: {
+      primary: 'vpm_failure',
+      message: 'VPM interpolation failing — executor cannot compute vehicle pose, degrading output quality',
+    },
+  },
 ];
 
 export function inferRootCauses(findings) {

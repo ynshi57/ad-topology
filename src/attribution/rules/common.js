@@ -86,6 +86,86 @@ export const commonRules = [
     },
   },
   {
+    id: 'L1_CRASH_RATE',
+    appliesTo: ['S2'],
+    evaluate(evidence) {
+      const total = evidence.totalFrames || 0;
+      const l1 = evidence.l1Frames ?? total;
+      if (total === 0 || l1 === total) {
+        return null;
+      }
+      const crashCount = total - l1;
+      return {
+        severity: 'error',
+        finding: `L1 crash: ${crashCount}/${total} frames crashed (SIGSEGV/exception)`,
+        tags: ['l1_crash'],
+        confidence: 1.0,
+      };
+    },
+  },
+  {
+    id: 'L2_OUTPUT_THRESHOLD',
+    appliesTo: ['S2'],
+    evaluate(evidence) {
+      const total = evidence.totalFrames || 0;
+      const l2 = evidence.l2Frames || 0;
+      const avgBytes = evidence.avgOutputBytes || 0;
+      if (total === 0) {
+        return null;
+      }
+      const rate = l2 / total;
+      if (rate >= 0.8) {
+        return null;
+      }
+      return {
+        severity: rate < 0.3 ? 'error' : 'warn',
+        finding: `L2 effective rate: ${(rate * 100).toFixed(1)}% (${l2}/${total}), avg output ${Math.round(avgBytes)}B — executor produces trivial/empty output`,
+        rootCauseHint: 'Missing upstream data (BevMap, StateMachine) or executor in STANDBY mode',
+        tags: ['l2_output_threshold'],
+        confidence: 0.9,
+      };
+    },
+  },
+  {
+    id: 'L2_STDERR_ERROR',
+    appliesTo: ['S2'],
+    evaluate(evidence) {
+      const errorLines = evidence.stderrErrorLines || [];
+      if (errorLines.length === 0) {
+        return null;
+      }
+      const sample = errorLines.slice(0, 3).map(l => l.substring(0, 120));
+      return {
+        severity: errorLines.length > 10 ? 'error' : 'warn',
+        finding: `${errorLines.length} ERROR/FATAL lines in stderr: ${sample.join('; ')}${errorLines.length > 3 ? ' ...' : ''}`,
+        tags: ['l2_stderr_error'],
+        confidence: 0.85,
+      };
+    },
+  },
+  {
+    id: 'L2_VPM_RATE',
+    appliesTo: ['S2'],
+    evaluate(evidence) {
+      const vpmErrors = evidence.vpmErrorLines || [];
+      const total = evidence.totalFrames || 0;
+      if (total === 0 || vpmErrors.length === 0) {
+        return null;
+      }
+      const failRate = vpmErrors.length / total;
+      if (failRate < 0.1) {
+        return null;
+      }
+      return {
+        severity: failRate > 0.5 ? 'error' : 'warn',
+        finding: `VPM failure rate: ${(failRate * 100).toFixed(1)}% (${vpmErrors.length} errors / ${total} frames)`,
+        rootCauseHint: 'VPM not receiving enough DR/GNSS/CAN data for interpolation',
+        tags: ['l2_vpm_rate'],
+        confidence: 0.9,
+      };
+    },
+  },
+  {
     id: 'LATENCY_SPIKE',
     appliesTo: ['S2'],
     evaluate(evidence) {
@@ -136,6 +216,23 @@ export const commonRules = [
         finding: `Output size divergence: ${diverged.map(d => `${d.name}: replay avg ${d.replayAvg}B vs recorded avg ${d.recordedAvg}B`).join('; ')}`,
         tags: ['output_diverge'],
         confidence: 0.7,
+      };
+    },
+  },
+  {
+    id: 'OUTPUT_TRIVIAL',
+    appliesTo: ['S4'],
+    evaluate(evidence) {
+      const trivial = evidence.trivialOutputChannels || [];
+      if (trivial.length === 0) {
+        return null;
+      }
+      return {
+        severity: 'warn',
+        finding: `Output channels with trivially small data: ${trivial.map(t => `${t.name}: avg ${t.avgSize}B`).join(', ')}`,
+        rootCauseHint: 'Executor producing STANDBY/empty protobuf output despite returning kProcessOk',
+        tags: ['output_trivial'],
+        confidence: 0.85,
       };
     },
   },

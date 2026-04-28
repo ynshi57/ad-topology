@@ -10,6 +10,7 @@ import { initDecoder, decodeMessage } from './proto-decoder.js';
 import { createReplayTestView } from './test-panel.js';
 import { create3DScene } from './scene-3d.js';
 import { createSceneTopics } from './scene-topics.js';
+import { createSplitter } from './splitter.js';
 
 const app = document.getElementById('app');
 
@@ -22,6 +23,7 @@ let currentDetail = null;
 let current3DScene = null;
 let current3DTopics = null;
 let show3D = false;
+let activeSplitters = [];
 
 let sharedSummary = null;
 let sharedTopology = null;
@@ -476,6 +478,9 @@ function showTopologyView() {
     <div class="output-area" id="output-area"></div>
   `;
 
+  activeSplitters.forEach(s => s.destroy());
+  activeSplitters = [];
+
   currentGraph = createGraph(document.getElementById('graph-area'), topology, {
     DOMAINS,
     onNodeDetail(nodeId) { showDetailView(nodeId); },
@@ -486,6 +491,19 @@ function showTopologyView() {
     channels: summary.channels.filter(ch => ch.publisher),
     onTopicClick(topic) { currentGraph.setActiveTopics([topic]); },
   });
+
+  const graphArea = document.getElementById('graph-area');
+  const panelArea = document.getElementById('panel-area');
+  activeSplitters.push(createSplitter(panelArea, graphArea, { direction: 'horizontal', min: 200, max: 600, reverse: true }));
+
+  const sceneTopics = document.getElementById('scene-topics-area');
+  const scene3D = document.getElementById('scene-3d-area');
+  activeSplitters.push(createSplitter(sceneTopics, scene3D, { direction: 'horizontal', min: 150, max: 500 }));
+
+  const mainArea = document.querySelector('.main-area');
+  const timelineEl = document.getElementById('timeline-area');
+  const outputEl = document.getElementById('output-area');
+  activeSplitters.push(createSplitter(timelineEl, outputEl, { direction: 'vertical', min: 32, max: 400, reverse: true }));
 
   // 3D Scene
   if (show3D && foxgloveChannels.length > 0) {
@@ -708,17 +726,25 @@ function showDetailView(nodeId) {
     <div class="output-area" id="output-area"></div>
   `;
 
+  activeSplitters.forEach(s => s.destroy());
+  activeSplitters = [];
+
   currentOutput = createOutputPanel(document.getElementById('output-area'));
   currentDetail = createNodeDetail(document.getElementById('detail-container'), {
     nodeId, topology: sharedTopology, DOMAINS,
     onBack() { backToTopology(); },
   });
 
+  const detailContainer = document.getElementById('detail-container');
+  const dtTimelineEl = document.getElementById('timeline-area');
+  const dtOutputEl = document.getElementById('output-area');
+  activeSplitters.push(createSplitter(dtOutputEl, dtTimelineEl, { direction: 'vertical', min: 32, max: 400, reverse: true }));
+
   detailLastSec = -1;
   detailCursors = {};
 
   if (msgBucketIndex) {
-    setupTimeline(document.getElementById('timeline-area'));
+    setupTimeline(dtTimelineEl);
   }
 
   setTimeout(() => {
@@ -736,6 +762,8 @@ function backToTopology() {
   if (currentTimeline) { currentTimeline.pause(); currentTimeline.destroy(); currentTimeline = null; }
   if (currentDetail) { currentDetail.destroy(); currentDetail = null; }
   if (currentOutput) { currentOutput.destroy(); currentOutput = null; }
+  activeSplitters.forEach(s => s.destroy());
+  activeSplitters = [];
   showTopologyView();
 }
 

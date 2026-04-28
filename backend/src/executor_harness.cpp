@@ -16,7 +16,29 @@
 #include "common/facilities.h"
 #include "common/facilities_inl.hpp"
 
+#include "localization_dead_reckoning.pb.h"
+#include "localization_pose.pb.h"
+#include "car_status.pb.h"
+
+namespace nexis { namespace common { namespace vpm {
+class VehiclePoseManager {
+public:
+    static VehiclePoseManager* getInstance();
+    void init(double buf_seconds = 15.0);
+    void AddDrData(const neodrive::global::localization_dr::LocalizationVehicleSpeed& dr_data);
+    void AddGnssData(const neodrive::global::localization::LocalizationEstimate& gnss_data);
+    void AddSteeringData(const neodrive::global::canbus::PbCarStatus& steering_data);
+};
+}}} // namespace nexis::common::vpm
+
 using namespace neolix::nexis;
+
+static const std::string kDrProtoType =
+    "neodrive.global.localization_dr.LocalizationVehicleSpeed";
+static const std::string kGnssProtoType =
+    "neodrive.global.localization.LocalizationEstimate";
+static const std::string kSteeringProtoType =
+    "neodrive.global.canbus.PbCarStatus";
 
 namespace harness {
 
@@ -106,11 +128,39 @@ bool ExecutorHarness::loadModule(const HarnessConfig& config, std::string& error
         }
 
         _initialized = true;
+        _gradingConfig = config.grading;
+
+        auto* vpm = nexis::common::vpm::VehiclePoseManager::getInstance();
+        vpm->init(300.0);
+        std::cerr << "[Harness] VehiclePoseManager initialized (buf=300s)" << std::endl;
+
         return true;
     } catch (const std::exception& e) {
         errorOut = std::string("Exception during load: ") + e.what();
         if (_soHandle) { dlclose(_soHandle); _soHandle = nullptr; }
         return false;
+    }
+}
+
+void ExecutorHarness::computeGrade(FrameResult& result) {
+    if (result.statusCode < 0) {
+        result.gradeLevel = 0;
+        result.gradeReason = result.statusName;
+        return;
+    }
+
+    result.gradeLevel = 1;
+
+    uint64_t totalOut = 0;
+    for (const auto& om : result.outputMetrics) {
+        totalOut += om.dataSize;
+    }
+    result.totalOutputBytes = totalOut;
+
+    if (totalOut >= _gradingConfig.l2MinOutputBytes) {
+        result.gradeLevel = 2;
+    } else {
+        result.gradeReason = "output_too_small(" + std::to_string(totalOut) + "B)";
     }
 }
 
@@ -180,6 +230,30 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
         result.inputMetrics.push_back(std::move(im));
 
         msgPtr = msg.get();
+
+        if (fi.protoType == kDrProtoType) {
+            auto* drMsg = dynamic_cast<const neodrive::global::localization_dr::LocalizationVehicleSpeed*>(msgPtr);
+            if (drMsg) {
+                auto* vpmInst = nexis::common::vpm::VehiclePoseManager::getInstance();
+                static bool loggedOnce = false;
+                if (!loggedOnce) {
+                    std::cerr << "[VPM] processFrame instance=" << (void*)vpmInst << std::endl;
+                    loggedOnce = true;
+                }
+                vpmInst->AddDrData(*drMsg);
+            }
+        } else if (fi.protoType == kGnssProtoType) {
+            auto* gnssMsg = dynamic_cast<const neodrive::global::localization::LocalizationEstimate*>(msgPtr);
+            if (gnssMsg) {
+                nexis::common::vpm::VehiclePoseManager::getInstance()->AddGnssData(*gnssMsg);
+            }
+        } else if (fi.protoType == kSteeringProtoType) {
+            auto* canMsg = dynamic_cast<const neodrive::global::canbus::PbCarStatus*>(msgPtr);
+            if (canMsg) {
+                nexis::common::vpm::VehiclePoseManager::getInstance()->AddSteeringData(*canMsg);
+            }
+        }
+
         deserializedMsgs.push_back(std::move(msg));
         succeeded++;
 
@@ -276,10 +350,15 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
             om.name = od.name;
             om.timestampNs = od.timestamp_ns;
             om.nonEmpty = (od.data != nullptr && od.timestamp_ns != 0);
-            // od.data is a raw uint8_t buffer, not a protobuf Message pointer.
-            // We cannot call ByteSizeLong() on it. Use timestamp_ns as a proxy
-            // for "executor wrote something meaningful to this output slot".
-            om.dataSize = om.nonEmpty ? 1 : 0;
+            om.dataSize = 0;
+            if (om.nonEmpty) {
+                try {
+                    auto* msgPtr = reinterpret_cast<const google::protobuf::MessageLite*>(od.data);
+                    om.dataSize = msgPtr->ByteSizeLong();
+                } catch (...) {
+                    om.dataSize = 1;
+                }
+            }
             result.outputMetrics.push_back(std::move(om));
         }
 
@@ -292,6 +371,7 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
         result.processTimeMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
     }
 
+    computeGrade(result);
     return result;
 }
 
@@ -459,11 +539,29 @@ std::vector<FrameResult> ExecutorHarness::processFrameMulti(
             auto msg = std::unique_ptr<google::protobuf::Message>(prototype->New());
             if (!msg->ParseFromArray(fi.protoData.data(), static_cast<int>(fi.protoData.size()))) continue;
 
+            const auto* rawPtr = msg.get();
+            if (fi.protoType == kDrProtoType) {
+                auto* drMsg = dynamic_cast<const neodrive::global::localization_dr::LocalizationVehicleSpeed*>(rawPtr);
+                if (drMsg) {
+                    nexis::common::vpm::VehiclePoseManager::getInstance()->AddDrData(*drMsg);
+                }
+            } else if (fi.protoType == kGnssProtoType) {
+                auto* gnssMsg = dynamic_cast<const neodrive::global::localization::LocalizationEstimate*>(rawPtr);
+                if (gnssMsg) {
+                    nexis::common::vpm::VehiclePoseManager::getInstance()->AddGnssData(*gnssMsg);
+                }
+            } else if (fi.protoType == kSteeringProtoType) {
+                auto* canMsg = dynamic_cast<const neodrive::global::canbus::PbCarStatus*>(rawPtr);
+                if (canMsg) {
+                    nexis::common::vpm::VehiclePoseManager::getInstance()->AddSteeringData(*canMsg);
+                }
+            }
+
             task::IExecutor::InputData id;
             id.name = fi.dataName;
             id.timestamp_ns = fi.timestampNs;
             id.trigger = firstInput;
-            id.data = msg.get();
+            id.data = rawPtr;
             inputMap.emplace(dataId, std::move(id));
             deserializedMsgs.push_back(std::move(msg));
             firstInput = false;
@@ -515,10 +613,27 @@ std::vector<FrameResult> ExecutorHarness::processFrameMulti(
             Json::Value outEntry;
             outEntry["name"] = od.name;
             outEntry["timestamp_ns"] = Json::Value::UInt64(od.timestamp_ns);
-            outEntry["non_empty"] = (od.data != nullptr && od.timestamp_ns != 0);
+            bool nonEmpty = (od.data != nullptr && od.timestamp_ns != 0);
+            outEntry["non_empty"] = nonEmpty;
             result.outputJson[od.name] = outEntry;
+
+            OutputMetric om;
+            om.name = od.name;
+            om.timestampNs = od.timestamp_ns;
+            om.nonEmpty = nonEmpty;
+            om.dataSize = 0;
+            if (om.nonEmpty) {
+                try {
+                    auto* msgPtr = reinterpret_cast<const google::protobuf::MessageLite*>(od.data);
+                    om.dataSize = msgPtr->ByteSizeLong();
+                } catch (...) {
+                    om.dataSize = 1;
+                }
+            }
+            result.outputMetrics.push_back(std::move(om));
         }
 
+        computeGrade(result);
         results.push_back(result);
     }
 

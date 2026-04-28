@@ -2392,5 +2392,23 @@
         "toData": "loc_msf_pose"
       }
     ]
+  },
+  "globalServices": {
+    "VehiclePoseManager": {
+      "feedTopics": {
+        "DR": {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed"
+        },
+        "GNSS": {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": "neodrive.global.localization.LocalizationEstimate"
+        },
+        "CAN": {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus"
+        }
+      }
+    }
   }
 }

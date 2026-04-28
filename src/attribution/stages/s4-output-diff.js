@@ -50,9 +50,14 @@ export default {
       }
     }
 
-    const evidence = { zeroOutputChannels, outputStats, divergedOutputs: [] };
+    const trivialOutputChannels = outputStats
+      .filter(o => o.ownedByThisExecutor !== false && o.nonEmptyPct > 0 && o.avgSize < 100)
+      .map(o => ({ name: o.name, avgSize: o.avgSize }));
+
+    const evidence = { zeroOutputChannels, trivialOutputChannels, outputStats, divergedOutputs: [] };
     ctx.setEvidence('S4', 'outputStats', outputStats);
     ctx.setEvidence('S4', 'zeroOutputChannels', zeroOutputChannels);
+    ctx.setEvidence('S4', 'trivialOutputChannels', trivialOutputChannels);
 
     const findings = evaluateRules('S4', evidence, ctx);
     for (const f of findings) {

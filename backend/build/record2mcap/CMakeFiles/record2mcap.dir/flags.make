@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/home/caros/cyberrt/include -I/home/caros/workspace/gears/x86_64/include -I/home/caros/workspace/nexis_kernel/include -I/home/caros/workspace/nexis_kernel/src -I/home/caros/workspace/nexis_kernel/import/xxhash/include -I/home/caros/workspace/cyber/cyber/spdlog/include -I/usr/include/jsoncpp -I/home/caros/workspace/ad-topology/backend/record2mcap/third_party
+CXX_INCLUDES = -I/home/caros/cyberrt/include -I/home/caros/workspace/gears/x86_64/include -I/home/caros/workspace/nexis_kernel/include -I/home/caros/workspace/nexis_kernel/src -I/home/caros/workspace/nexis_kernel/import/xxhash/include -I/home/caros/workspace/cyber/cyber/spdlog/include -I/home/caros/cyberrt/include/proto -I/usr/include/jsoncpp -I/home/caros/workspace/ad-topology/backend/record2mcap/third_party
 
-CXX_FLAGS = -std=gnu++17 -fPIE -O2 -g -Wall -Wno-unused-parameter
+CXX_FLAGS = -g -std=gnu++17 -fPIE -O2 -g -Wall -Wno-unused-parameter
 

@@ -12,6 +12,7 @@ import { createSession } from './attribution/session.js';
 import { ALL_STAGES } from './attribution/stages/index.js';
 import { createExecutorSelector, getProcessExecutors } from './attribution/executor-selector.js';
 import './attribution/flamegraph-renderer.js';
+import { createSplitter } from './splitter.js';
 
 const WS_URL = 'ws://localhost:8765';
 const DEFAULT_HZ = 20;
@@ -251,6 +252,7 @@ export async function createReplayTestView(container, opts) {
           <label class="rt-label">Output Topics</label>
           <textarea class="rt-textarea rt-topics" id="rt-output-topics">${esc(guessTopics(nodeId, topology, 'pub'))}</textarea>
         </div>
+        <div class="rt-section" id="gs-section"></div>
       </div>
       <div class="rt-right">
         <div class="at-container" id="at-container"></div>
@@ -258,6 +260,10 @@ export async function createReplayTestView(container, opts) {
     </div>
   `;
   container.appendChild(el);
+
+  const rtLeft = el.querySelector('.rt-left');
+  const rtRight = el.querySelector('.rt-right');
+  const rtSplitter = createSplitter(rtLeft, rtRight, { direction: 'horizontal', min: 200, max: 600 });
 
   const soInput = el.querySelector('#rt-so');
   const classInput = el.querySelector('#rt-class');
@@ -267,6 +273,9 @@ export async function createReplayTestView(container, opts) {
   const outputTopicsEl = el.querySelector('#rt-output-topics');
 
   el.querySelector('#rt-back').addEventListener('click', () => { destroy(); if (onBack) onBack(); });
+
+  // --- Global Services Panel ---
+  renderGlobalServicesPanel(el.querySelector('#gs-section'), nodeId, summary);
 
   // --- Executor Selector + Unified Stepper ---
   const atContainer = el.querySelector('#at-container');
@@ -749,6 +758,7 @@ export async function createReplayTestView(container, opts) {
 
   function destroy() {
     if (ws) { ws.close(); ws = null; }
+    rtSplitter.destroy();
     el.remove();
   }
 
@@ -784,6 +794,77 @@ function findExecutorFlowForAttribution(nodeId) {
     }
   }
   return null;
+}
+
+function renderGlobalServicesPanel(container, nodeId, summary) {
+  const gs = nexisConfig.globalServices;
+  if (!gs || Object.keys(gs).length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  const channelMsgCounts = {};
+  if (summary?.channels) {
+    for (const ch of summary.channels) {
+      channelMsgCounts[ch.topic] = (channelMsgCounts[ch.topic] || 0) + (ch.messageCount || 0);
+    }
+  }
+
+  const proc = nexisConfig.processes?.[nodeId];
+  const procSubTopics = new Set((proc?.sub || []).map(s => s.topic));
+
+  let html = '<div class="rt-section-title">Global Services</div>';
+  let hasAny = false;
+
+  for (const [serviceName, svc] of Object.entries(gs)) {
+    const feeds = Object.entries(svc.feedTopics || {});
+    const matchedFeeds = feeds.filter(([, info]) => procSubTopics.has(info.topic));
+    if (matchedFeeds.length === 0) {
+      continue;
+    }
+    hasAny = true;
+
+    let totalCount = 0;
+    let availableCount = 0;
+    const feedRows = matchedFeeds.map(([label, info]) => {
+      const count = channelMsgCounts[info.topic] || 0;
+      totalCount++;
+      if (count > 0) {
+        availableCount++;
+      }
+      const statusCls = count > 0 ? 'gs-feed-on' : 'gs-feed-off';
+      return `<div class="gs-feed-item ${statusCls}">
+        <span class="gs-feed-label">${label}</span>
+        <span class="gs-feed-topic">${info.topic}</span>
+        <span class="gs-feed-count">${count > 0 ? count + ' msgs' : 'no data'}</span>
+      </div>`;
+    });
+
+    let badge = 'gs-badge-off';
+    let badgeText = 'OFF';
+    if (availableCount === totalCount) {
+      badge = 'gs-badge-on';
+      badgeText = 'ON';
+    } else if (availableCount > 0) {
+      badge = 'gs-badge-partial';
+      badgeText = 'PARTIAL';
+    }
+
+    html += `<div class="gs-service">
+      <div class="gs-service-header">
+        <span class="gs-service-name">${serviceName}</span>
+        <span class="gs-badge ${badge}">${badgeText}</span>
+      </div>
+      ${feedRows.join('')}
+    </div>`;
+  }
+
+  if (!hasAny) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.innerHTML = html;
 }
 
 function esc(s) { const d = document.createElement('span'); d.textContent = s; return d.innerHTML; }

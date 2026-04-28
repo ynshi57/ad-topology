@@ -8,11 +8,16 @@
 
 namespace harness {
 
+struct GradingConfig {
+    uint64_t l2MinOutputBytes = 100;
+};
+
 struct HarnessConfig {
     std::string soPath;
     std::string executorClass;
     std::vector<std::string> configPaths;
     std::vector<std::string> outputDataNames;
+    GradingConfig grading;
 };
 
 struct FrameInput {
@@ -48,6 +53,10 @@ struct FrameResult {
     double processTimeMs;
     std::vector<InputMetric> inputMetrics;
     std::vector<OutputMetric> outputMetrics;
+
+    int gradeLevel = 0;
+    std::string gradeReason;
+    uint64_t totalOutputBytes = 0;
 };
 
 /**
@@ -88,6 +97,7 @@ private:
     void* _destroyFn = nullptr;
     bool _initialized = false;
     std::vector<std::string> _outputDataNames;
+    GradingConfig _gradingConfig;
 
     // Multi-executor state
     struct ExecutorEntry {
@@ -99,6 +109,7 @@ private:
     };
     std::vector<ExecutorEntry> _entries;
     void unloadEntry(ExecutorEntry& entry);
+    void computeGrade(FrameResult& result);
 };
 
 } // namespace harness

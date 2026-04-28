@@ -4,6 +4,7 @@
  */
 
 import * as d3 from 'd3';
+import { createSplitter } from './splitter.js';
 
 const DC = {
   sensor: '#4db8c7', perception: '#c7943a', localization: '#3aaa7a',
@@ -68,7 +69,6 @@ export function createNodeDetail(container, opts) {
       </div>
     </div>
     <div class="nd-mini-topo" id="nd-mini-topo"></div>
-    <div class="nd-resize-handle" id="nd-resize-handle" title="Drag to resize"></div>
     <div class="nd-selector" id="nd-selector">
       <div class="nd-sel-columns">
         <div class="nd-sel-col" id="nd-sel-col-sub">
@@ -96,38 +96,10 @@ export function createNodeDetail(container, opts) {
     nodeId, nodeData, upstreamIds, downstreamIds, upstreamLinks, downstreamLinks, nodes, DOMAINS,
   });
 
-  // --- Resize Handle ---
+  // --- Resize Handle (mini-topo | selector) ---
   const miniTopo = el.querySelector('#nd-mini-topo');
-  const resizeHandle = el.querySelector('#nd-resize-handle');
-  let resizing = false;
-  let startY = 0;
-  let startH = 0;
-
-  resizeHandle.addEventListener('mousedown', (e) => {
-    resizing = true;
-    startY = e.clientY;
-    startH = miniTopo.offsetHeight;
-    document.body.style.cursor = 'ns-resize';
-    document.body.style.userSelect = 'none';
-    e.preventDefault();
-  });
-
-  const onMouseMove = (e) => {
-    if (!resizing) { return; }
-    const delta = e.clientY - startY;
-    const newH = Math.max(60, Math.min(startH + delta, 600));
-    miniTopo.style.height = newH + 'px';
-  };
-
-  const onMouseUp = () => {
-    if (!resizing) { return; }
-    resizing = false;
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  };
-
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
+  const ndSelector = el.querySelector('#nd-selector');
+  const miniTopoSplitter = createSplitter(miniTopo, ndSelector, { direction: 'vertical', min: 60, max: 600 });
 
   // --- Topic Selector (two-column: SUB | PUB, grouped by node) ---
   const subBody = el.querySelector('#nd-sel-sub-body');
@@ -312,8 +284,7 @@ export function createNodeDetail(container, opts) {
   }
 
   function destroy() {
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
+    miniTopoSplitter.destroy();
     el.remove();
   }
 

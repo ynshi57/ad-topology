@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = -DENABLE_HASH_KEY -DXXH_INLINE_ALL=1
 
-CXX_INCLUDES = -I/home/caros/cyberrt/include -I/home/caros/workspace/gears/x86_64/include -I/home/caros/workspace/nexis_kernel/include -I/home/caros/workspace/nexis_kernel/src -I/home/caros/workspace/nexis_kernel/import/xxhash/include -I/home/caros/workspace/cyber/cyber/spdlog/include -I/usr/include/jsoncpp
+CXX_INCLUDES = -I/home/caros/cyberrt/include -I/home/caros/workspace/gears/x86_64/include -I/home/caros/workspace/nexis_kernel/include -I/home/caros/workspace/nexis_kernel/src -I/home/caros/workspace/nexis_kernel/import/xxhash/include -I/home/caros/workspace/cyber/cyber/spdlog/include -I/home/caros/cyberrt/include/proto -I/usr/include/jsoncpp
 
-CXX_FLAGS = -std=gnu++17 -O0 -g -Wall
+CXX_FLAGS = -g -std=gnu++17 -O0 -g -Wall
 

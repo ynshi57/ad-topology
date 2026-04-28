@@ -17,6 +17,7 @@
 
 #include <cstdlib>
 #include <dlfcn.h>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -28,7 +29,26 @@
 #include "executor_harness.h"
 #include "cyber_harness.h"
 
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/message.h>
+#include "localization_dead_reckoning.pb.h"
+#include "localization_pose.pb.h"
+#include "car_status.pb.h"
+
+namespace nexis { namespace common { namespace vpm {
+class VehiclePoseManager {
+public:
+    static VehiclePoseManager* getInstance();
+    void init(double buf_seconds = 15.0);
+    void AddDrData(const neodrive::global::localization_dr::LocalizationVehicleSpeed& dr_data);
+    void AddGnssData(const neodrive::global::localization::LocalizationEstimate& gnss_data);
+    void AddSteeringData(const neodrive::global::canbus::PbCarStatus& steering_data);
+};
+}}} // namespace nexis::common::vpm
+
 using namespace neolix::nexis;
+
+#include "cyber/spdlog/neolix_log.h"
 
 static std::string base64Decode(const std::string& encoded) {
     static const std::string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -55,6 +75,8 @@ static void writeResponse(const Json::Value& resp) {
 }
 
 int main(int argc, char** argv) {
+    INIT_NEOLOG("executor_harness", "/tmp", neodrive::neolog::INFO);
+
     // Dual-mode harnesses
     harness::ExecutorHarness execHarness;
     harness::CyberComponentHarness cyberHarness;
@@ -116,12 +138,21 @@ int main(int argc, char** argv) {
                 outputDataNames.push_back(n.asString());
             }
 
+            harness::GradingConfig gradingCfg;
+            if (cmd.isMember("grading")) {
+                const auto& g = cmd["grading"];
+                if (g.isMember("l2_min_output_bytes")) {
+                    gradingCfg.l2MinOutputBytes = g["l2_min_output_bytes"].asUInt64();
+                }
+            }
+
             auto tryExecutor = [&](std::string& errOut) -> bool {
                 harness::HarnessConfig cfg;
                 cfg.soPath = soPath;
                 cfg.executorClass = className;
                 cfg.configPaths = configPaths;
                 cfg.outputDataNames = outputDataNames;
+                cfg.grading = gradingCfg;
                 return execHarness.loadModule(cfg, errOut);
             };
 
@@ -270,6 +301,9 @@ int main(int argc, char** argv) {
                         r["process_time_ms"] = result.processTimeMs;
                         if (!result.errorMsg.empty()) { r["error"] = result.errorMsg; }
                         r["output"] = result.outputJson;
+                        r["grade_level"] = result.gradeLevel;
+                        if (!result.gradeReason.empty()) { r["grade_reason"] = result.gradeReason; }
+                        r["total_output_bytes"] = Json::Value::UInt64(result.totalOutputBytes);
                         resp["results"].append(r);
                     }
                     continue;
@@ -308,6 +342,9 @@ int main(int argc, char** argv) {
                     outputMetrics.append(entry);
                 }
                 r["output_metrics"] = outputMetrics;
+                r["grade_level"] = result.gradeLevel;
+                if (!result.gradeReason.empty()) { r["grade_reason"] = result.gradeReason; }
+                r["total_output_bytes"] = Json::Value::UInt64(result.totalOutputBytes);
 
                 resp["results"].append(r);
             }
@@ -320,6 +357,7 @@ int main(int argc, char** argv) {
             const int repeatCount = cmd.get("repeat", 1).asInt();
             int totalFrames = 0;
             int okFrames = 0;
+            int l1Frames = 0, l2Frames = 0;
             double totalMs = 0;
 
             std::cerr << "[Harness] perf_replay: " << frames.size()
@@ -350,6 +388,8 @@ int main(int argc, char** argv) {
                     auto result = execHarness.processFrame(pf.inputs);
                     totalFrames++;
                     if (result.statusCode == 1) { okFrames++; }
+                    if (result.gradeLevel >= 1) { l1Frames++; }
+                    if (result.gradeLevel >= 2) { l2Frames++; }
                     totalMs += result.processTimeMs;
                 }
             }
@@ -358,8 +398,140 @@ int main(int argc, char** argv) {
             resp["cmd"] = "perf_replay_result";
             resp["total_frames"] = totalFrames;
             resp["ok_frames"] = okFrames;
+            resp["l1_frames"] = l1Frames;
+            resp["l2_frames"] = l2Frames;
             resp["total_ms"] = totalMs;
             resp["avg_ms"] = totalFrames > 0 ? totalMs / totalFrames : 0;
+            writeResponse(resp);
+
+        } else if (cmdType == "vpm_preload") {
+            const auto& messages = cmd["messages"];
+            int drCount = 0, gnssCount = 0, canCount = 0, failCount = 0;
+            auto* vpm = nexis::common::vpm::VehiclePoseManager::getInstance();
+
+            std::vector<neodrive::global::localization_dr::LocalizationVehicleSpeed> drMsgs;
+            std::vector<neodrive::global::localization::LocalizationEstimate> gnssMsgs;
+            std::vector<neodrive::global::canbus::PbCarStatus> canMsgs;
+
+            for (Json::ArrayIndex i = 0; i < messages.size(); i++) {
+                const auto& m = messages[i];
+                std::string protoType = m.get("proto_type", "").asString();
+                std::string decoded = base64Decode(m.get("data_base64", "").asString());
+                if (decoded.empty() || protoType.empty()) { failCount++; continue; }
+
+                if (protoType == "neodrive.global.localization_dr.LocalizationVehicleSpeed") {
+                    neodrive::global::localization_dr::LocalizationVehicleSpeed msg;
+                    if (msg.ParseFromArray(decoded.data(), static_cast<int>(decoded.size()))) {
+                        drMsgs.push_back(std::move(msg));
+                    } else { failCount++; }
+                } else if (protoType == "neodrive.global.localization.LocalizationEstimate") {
+                    neodrive::global::localization::LocalizationEstimate msg;
+                    if (msg.ParseFromArray(decoded.data(), static_cast<int>(decoded.size()))) {
+                        gnssMsgs.push_back(std::move(msg));
+                    } else { failCount++; }
+                } else if (protoType == "neodrive.global.canbus.PbCarStatus") {
+                    neodrive::global::canbus::PbCarStatus msg;
+                    if (msg.ParseFromArray(decoded.data(), static_cast<int>(decoded.size()))) {
+                        canMsgs.push_back(std::move(msg));
+                    } else { failCount++; }
+                }
+            }
+
+            std::sort(drMsgs.begin(), drMsgs.end(),
+                [](const auto& a, const auto& b) { return a.measurement_time() < b.measurement_time(); });
+            std::sort(gnssMsgs.begin(), gnssMsgs.end(),
+                [](const auto& a, const auto& b) { return a.measurement_time() < b.measurement_time(); });
+            std::sort(canMsgs.begin(), canMsgs.end(),
+                [](const auto& a, const auto& b) { return a.header().timestamp_sec() < b.header().timestamp_sec(); });
+
+            for (auto& msg : drMsgs) { vpm->AddDrData(msg); drCount++; }
+            for (auto& msg : gnssMsgs) { vpm->AddGnssData(msg); gnssCount++; }
+            for (auto& msg : canMsgs) { vpm->AddSteeringData(msg); canCount++; }
+
+            if (!drMsgs.empty()) {
+                std::cerr << "[VPM-preload] DR range: " << std::fixed << std::setprecision(3)
+                          << drMsgs.front().measurement_time() << " → " << drMsgs.back().measurement_time()
+                          << " (" << drMsgs.size() << " msgs)" << std::endl;
+            }
+            if (!gnssMsgs.empty()) {
+                std::cerr << "[VPM-preload] GNSS range: " << std::fixed << std::setprecision(3)
+                          << gnssMsgs.front().measurement_time() << " → " << gnssMsgs.back().measurement_time()
+                          << " (" << gnssMsgs.size() << " msgs)" << std::endl;
+            }
+            if (!canMsgs.empty()) {
+                std::cerr << "[VPM-preload] CAN range: " << std::fixed << std::setprecision(3)
+                          << canMsgs.front().header().timestamp_sec() << " → " << canMsgs.back().header().timestamp_sec()
+                          << " (" << canMsgs.size() << " msgs)" << std::endl;
+            }
+
+            std::cerr << "[Harness] VPM preloaded: DR=" << drCount
+                      << " GNSS=" << gnssCount << " CAN=" << canCount
+                      << " fail=" << failCount
+                      << " instance=" << (void*)vpm << std::endl;
+
+            // Verify VPM data by trying a query at the first DR message's timestamp
+            bool vpmVerified = false;
+            std::string vpmVerifyErr;
+            {
+                using GetLocDataFn = bool(*)(void*, int64_t, void*);
+                void* sym = dlsym(RTLD_DEFAULT, "_ZN5nexis6common3vpm18VehiclePoseManager17GetVehicleLocDataElPNS1_14VehicleLocDataE");
+                if (sym) {
+                    auto fn = reinterpret_cast<GetLocDataFn>(sym);
+                    // Find a timestamp from the middle of preloaded DR data
+                    int64_t testTs = 0;
+                    for (Json::ArrayIndex i = messages.size() / 2; i < messages.size(); i++) {
+                        if (messages[i].get("proto_type", "").asString() == "neodrive.global.localization_dr.LocalizationVehicleSpeed") {
+                            std::string dec = base64Decode(messages[i].get("data_base64", "").asString());
+                            neodrive::global::localization_dr::LocalizationVehicleSpeed tm;
+                            if (tm.ParseFromArray(dec.data(), static_cast<int>(dec.size()))) {
+                                testTs = static_cast<int64_t>(tm.measurement_time() * 1e9);
+                            }
+                            break;
+                        }
+                    }
+                    if (testTs > 0) {
+                        uint8_t locBuf[4096] = {};
+                        vpmVerified = fn(vpm, testTs, locBuf);
+                        if (!vpmVerified) {
+                            vpmVerifyErr = "GetVehicleLocData returned false at ts=" + std::to_string(testTs);
+                        }
+                    } else {
+                        vpmVerifyErr = "no test timestamp";
+                    }
+                } else {
+                    vpmVerifyErr = "dlsym failed";
+                }
+                std::cerr << "[Harness] VPM verify: " << (vpmVerified ? "OK" : ("FAIL: " + vpmVerifyErr)) << std::endl;
+            }
+
+            std::ostringstream addrStr;
+            addrStr << (void*)vpm;
+
+            Json::Value resp;
+            resp["cmd"] = "vpm_preload_result";
+            resp["dr"] = drCount;
+            resp["gnss"] = gnssCount;
+            resp["can"] = canCount;
+            resp["fail"] = failCount;
+            resp["instance"] = addrStr.str();
+            resp["verify"] = vpmVerified ? "OK" : ("FAIL: " + vpmVerifyErr);
+            // Capture first-CAN diagnostic into response for visibility
+            {
+                // Re-parse first CAN message to check fields
+                for (Json::ArrayIndex i = 0; i < messages.size(); i++) {
+                    std::string pt = messages[i].get("proto_type", "").asString();
+                    if (pt != "neodrive.global.canbus.PbCarStatus") continue;
+                    std::string dec = base64Decode(messages[i].get("data_base64", "").asString());
+                    neodrive::global::canbus::PbCarStatus cm;
+                    if (cm.ParseFromArray(dec.data(), static_cast<int>(dec.size()))) {
+                        resp["can_diag"] = std::string("header=") + (cm.has_header() ? "1" : "0")
+                            + " ts_sec=" + (cm.has_header() && cm.header().has_timestamp_sec() ? "1" : "0")
+                            + " wheelspeed=" + (cm.has_wheelspeed() ? "1" : "0")
+                            + " steer_angle=" + (cm.has_wheelspeed() && cm.wheelspeed().has_steering_angle() ? "1" : "0");
+                    }
+                    break;
+                }
+            }
             writeResponse(resp);
 
         } else if (cmdType == "inject" && activeMode == "cyber") {

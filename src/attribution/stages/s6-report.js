@@ -16,8 +16,9 @@ export default {
     const hotspots = ctx.getEvidence('S5', 'hotspots') || [];
     const topHotspots = hotspots.slice(0, 5).map(h => `${h.func} (${h.pct.toFixed(1)}%)`);
 
+    const totalFrames = ctx.getEvidence('S2', 'totalFrames') || 0;
     const report = {
-      version: '1.0',
+      version: '1.1',
       moduleId: ctx.nodeId,
       runtime: ctx.runtime,
       timestamp: new Date().toISOString(),
@@ -25,7 +26,14 @@ export default {
       findings: enrichedFindings,
       rootCauses: causes,
       summary: {
-        replayOkRate: computeRate(ctx.getEvidence('S2', 'okFrames'), ctx.getEvidence('S2', 'totalFrames')),
+        replayOkRate: computeRate(ctx.getEvidence('S2', 'okFrames'), totalFrames),
+        l1Rate: computeRate(ctx.getEvidence('S2', 'l1Frames'), totalFrames),
+        l2Rate: computeRate(ctx.getEvidence('S2', 'l2Frames'), totalFrames),
+        l3Rate: 'N/A',
+        l1Frames: ctx.getEvidence('S2', 'l1Frames') || 0,
+        l2Frames: ctx.getEvidence('S2', 'l2Frames') || 0,
+        totalFrames,
+        avgOutputBytes: Math.round(ctx.getEvidence('S2', 'avgOutputBytes') || 0),
         missingRequired: ctx.getEvidence('S3', 'missingRequired') || [],
         zeroOutputChannels: ctx.getEvidence('S4', 'zeroOutputChannels') || [],
         topPerfHotspots: topHotspots,
@@ -76,10 +84,19 @@ export default {
 
     const summary = report.summary;
 
+    const l1Cls = gradeClass(summary.l1Frames, summary.totalFrames);
+    const l2Cls = gradeClass(summary.l2Frames, summary.totalFrames);
+
     el.innerHTML = `
       <div class="at-report-summary">
+        <div class="at-grade-row">
+          <div class="at-grade ${l1Cls}"><span class="at-grade-val">${summary.l1Rate}</span><span class="at-grade-label">L1 No Crash</span></div>
+          <div class="at-grade ${l2Cls}"><span class="at-grade-val">${summary.l2Rate}</span><span class="at-grade-label">L2 Effective</span></div>
+          <div class="at-grade at-grade-na"><span class="at-grade-val">${summary.l3Rate}</span><span class="at-grade-label">L3 Consistent</span></div>
+        </div>
         <div class="at-stats-row">
-          <div class="at-stat"><span class="at-stat-val">${summary.replayOkRate}</span><span class="at-stat-label">Replay OK</span></div>
+          <div class="at-stat"><span class="at-stat-val">${summary.totalFrames}</span><span class="at-stat-label">Frames</span></div>
+          <div class="at-stat"><span class="at-stat-val">${summary.avgOutputBytes}B</span><span class="at-stat-label">Avg Output</span></div>
           <div class="at-stat"><span class="at-stat-val">${summary.totalFindings}</span><span class="at-stat-label">Findings</span></div>
           <div class="at-stat"><span class="at-stat-val">${summary.errorFindings}</span><span class="at-stat-label">Errors</span></div>
           <div class="at-stat"><span class="at-stat-val">${summary.warnFindings}</span><span class="at-stat-label">Warnings</span></div>
@@ -138,6 +155,14 @@ function computeRate(ok, total) {
     return 'N/A';
   }
   return `${((ok / total) * 100).toFixed(1)}%`;
+}
+
+function gradeClass(passed, total) {
+  if (!total || total === 0) { return 'at-grade-na'; }
+  const rate = passed / total;
+  if (rate >= 0.95) { return 'at-grade-pass'; }
+  if (rate >= 0.5) { return 'at-grade-partial'; }
+  return 'at-grade-fail';
 }
 
 function esc(s) {

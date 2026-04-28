@@ -19,6 +19,8 @@ include_directories(
     /home/caros/workspace/nexis_kernel/src
     /home/caros/workspace/nexis_kernel/import/xxhash/include
     /home/caros/workspace/cyber/cyber/spdlog/include
+    # Proto generated headers (localization_dead_reckoning.pb.h etc.)
+    ${CYBERRT_ROOT}/include/proto
 )
 
 link_directories(
@@ -47,6 +49,8 @@ target_link_libraries(executor_harness
     spdlog
     fastrtps
     fastcdr
+    vehicle_pose_manager
+    common_message
     ${JSONCPP_LIBRARIES}
     pthread
     rt

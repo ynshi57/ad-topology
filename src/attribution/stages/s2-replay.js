@@ -21,21 +21,38 @@ export default {
       return { status: 'warn', warnings: ['No input topics configured'], frameTimes: [], findings: [] };
     }
 
-    // Use shared msgDataCache from main.js instead of re-scanning the mcap file.
-    // Falls back to full mcap scan if cache is not available.
+    const gsFeeds = collectGlobalServiceTopics(ctx.nodeId);
+    const gsTopicSet = new Set(gsFeeds.map(f => f.topic));
+    const allTopics = [...new Set([...inputTopics, ...gsFeeds.map(f => f.topic)])];
+
     let rawMsgs;
     if (ctx.msgDataCache && ctx.startTimeNs != null) {
-      console.log('[S2] Using shared msgDataCache for', inputTopics.length, 'input topics');
-      rawMsgs = buildRawMsgsFromCache(ctx.msgDataCache, inputTopics, ctx.startTimeNs);
+      console.log('[S2] Using shared msgDataCache for', allTopics.length, 'topics (' + inputTopics.length + ' executor + ' + gsFeeds.length + ' global service)');
+      rawMsgs = buildRawMsgsFromCache(ctx.msgDataCache, allTopics, ctx.startTimeNs);
       console.log('[S2] Got', rawMsgs.length, 'messages from cache');
     } else {
       const readers = ctx.summary?.readers;
       if (!readers || readers.length === 0) {
         throw new Error('No mcap readers and no msgDataCache in session');
       }
-      console.log('[S2] Cache unavailable, scanning mcap for', inputTopics.length, 'input topics...');
-      rawMsgs = await readRawMessages(readers, inputTopics, ctx.summary.startTimeNs, ctx.summary.endTimeNs);
+      console.log('[S2] Cache unavailable, scanning mcap for', allTopics.length, 'topics (' + inputTopics.length + ' executor + ' + gsFeeds.length + ' global service)...');
+      rawMsgs = await readRawMessages(readers, allTopics, ctx.summary.startTimeNs, ctx.summary.endTimeNs);
       console.log('[S2] Found', rawMsgs.length, 'messages from mcap scan');
+    }
+
+    if (gsFeeds.length > 0) {
+      console.log('[S2] === Global Services ===');
+      const gsCounts = {};
+      for (const msg of rawMsgs) {
+        if (gsTopicSet.has(msg.topic)) {
+          gsCounts[msg.topic] = (gsCounts[msg.topic] || 0) + 1;
+        }
+      }
+      for (const feed of gsFeeds) {
+        const count = gsCounts[feed.topic] || 0;
+        console.log(`[S2]   ${feed.service}.${feed.label}: ${feed.topic} → ${count} msgs`);
+      }
+      ctx.setEvidence('S2', 'globalServiceFeeds', gsFeeds.map(f => ({ ...f, count: gsCounts[f.topic] || 0 })));
     }
     if (rawMsgs.length === 0) {
       return { status: 'warn', warnings: ['No messages found for input topics'], frameTimes: [], findings: [] };
@@ -43,18 +60,45 @@ export default {
 
     const topicToDataName = buildTopicToDataNameMap(ctx.nodeId);
     const topicToProto = buildTopicToProtoMap(ctx.nodeId);
+    for (const feed of gsFeeds) {
+      if (feed.proto && !topicToProto.has(feed.topic)) {
+        topicToProto.set(feed.topic, feed.proto);
+      }
+      if (!topicToDataName.has(feed.topic)) {
+        topicToDataName.set(feed.topic, feed.label.toLowerCase() + '_' + feed.service.toLowerCase());
+      }
+    }
     const flow = findExecutorFlow(ctx.nodeId);
     const hz = ctx.hz;
     const intervalNs = BigInt(Math.floor(1e9 / hz));
     const allRequiredFromFlow = flow?.requiredInputs || [];
     const availableDataNames = new Set();
+    const topicMsgCounts = {};
     for (const msg of rawMsgs) {
+      topicMsgCounts[msg.topic] = (topicMsgCounts[msg.topic] || 0) + 1;
       const dn = topicToDataName.get(msg.topic);
       if (dn) {
         availableDataNames.add(dn);
       }
     }
+
+    console.log('[S2] === Topic → DataName mapping ===');
+    for (const [topic, dataName] of topicToDataName) {
+      const count = topicMsgCounts[topic] || 0;
+      const proto = topicToProto.get(topic) || '?';
+      console.log(`[S2]   ${topic} → ${dataName} (${count} msgs) [${proto}]`);
+    }
+    console.log('[S2] === Required inputs from flow ===');
+    for (const r of allRequiredFromFlow) {
+      const hasIt = availableDataNames.has(r);
+      console.log(`[S2]   ${r}: ${hasIt ? 'AVAILABLE' : 'MISSING'}`);
+    }
     const requiredSet = new Set(allRequiredFromFlow.filter(r => availableDataNames.has(r)));
+    console.log('[S2] requiredSet (used for gating):', [...requiredSet]);
+    const missingRequired = allRequiredFromFlow.filter(r => !availableDataNames.has(r));
+    if (missingRequired.length > 0) {
+      console.warn('[S2] WARNING: these required inputs have 0 messages:', missingRequired);
+    }
 
     const startTime = rawMsgs[0].logTime;
     const endTime = rawMsgs[rawMsgs.length - 1].logTime;
@@ -69,8 +113,11 @@ export default {
     const allOutputMetrics = [];
     const stderrLines = [];
     let okFrames = 0;
+    let l1Frames = 0;
+    let l2Frames = 0;
     let totalFrames = 0;
     let skippedTicks = 0;
+    let totalOutputBytes = 0;
 
     const waitForResponse = () => new Promise((resolve, reject) => {
       const TIMEOUT_MS = 30000;
@@ -103,12 +150,55 @@ export default {
         const perfResp = await fetch('http://localhost:8765/perf-start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pid: ctx.harnessPid, freq: 99 }),
+          body: JSON.stringify({ pid: ctx.harnessPid, freq: 4999 }),
         });
         const perfData = await perfResp.json();
         console.log('[S2] perf-start:', perfData.ok ? 'attached' : perfData.error);
       } catch (e) {
         console.warn('[S2] perf-start failed:', e.message);
+      }
+    }
+
+    // --- VPM Preload: feed all global service messages to harness before replay ---
+    if (gsFeeds.length > 0 && ws.readyState === WebSocket.OPEN) {
+      const vpmMessages = [];
+      for (const msg of rawMsgs) {
+        if (!gsTopicSet.has(msg.topic)) {
+          continue;
+        }
+        const proto = topicToProto.get(msg.topic) || '';
+        if (!proto || !msg.data || msg.data.byteLength === 0) {
+          continue;
+        }
+        vpmMessages.push({ proto_type: proto, data_base64: uint8ToBase64(msg.data) });
+      }
+
+      if (vpmMessages.length > 0) {
+        console.log('[S2] VPM preload: sending', vpmMessages.length, 'messages to harness...');
+        const preloadPromise = new Promise((resolve) => {
+          const handler = (event) => {
+            const m = JSON.parse(event.data);
+            if (m.cmd === 'vpm_preload_result') {
+              ws.removeEventListener('message', handler);
+              resolve(m);
+            }
+          };
+          ws.addEventListener('message', handler);
+          setTimeout(() => { ws.removeEventListener('message', handler); resolve(null); }, 30000);
+        });
+        ws.send(JSON.stringify({ cmd: 'vpm_preload', messages: vpmMessages }));
+        const preloadResult = await preloadPromise;
+        if (preloadResult) {
+          console.log(`[S2] VPM preloaded: DR=${preloadResult.dr || 0}, GNSS=${preloadResult.gnss || 0}, CAN=${preloadResult.can || 0}`);
+          if (preloadResult.can_diag) {
+            console.log(`[S2] VPM CAN fields: ${preloadResult.can_diag}`);
+          }
+          if (preloadResult.verify) {
+            console.log(`[S2] VPM verify query: ${preloadResult.verify}`);
+          }
+        } else {
+          console.warn('[S2] VPM preload: no response (timeout)');
+        }
       }
     }
 
@@ -155,8 +245,9 @@ export default {
           });
         }
 
-        if (totalFrames === 0) {
-          console.log('[S2] Sending first process frame with', inputs.length, 'inputs');
+        if (totalFrames < 3) {
+          console.log(`[S2] Frame #${totalFrames} sending ${inputs.length} inputs:`,
+            inputs.map(i => `${i.name}(${i.proto_type}, ${i.data_base64.length}B)`).join(', '));
         }
         ws.send(JSON.stringify({ cmd: 'process', frames: [{ timestamp_ns: Number(tickTime), inputs }] }));
         const resp = await waitForResponse();
@@ -164,9 +255,13 @@ export default {
         for (const r of (resp.results || [])) {
           totalFrames++;
           const ok = r.status_code === 1 || r.status === 'kProcessOk';
-          if (ok) {
-            okFrames++;
-          }
+          if (ok) { okFrames++; }
+
+          const grade = r.grade_level ?? (r.status_code >= 0 ? 1 : 0);
+          if (grade >= 1) { l1Frames++; }
+          if (grade >= 2) { l2Frames++; }
+          totalOutputBytes += r.total_output_bytes || 0;
+
           frameTimes.push(r.process_time_ms || 0);
           frameResults.push(r);
           if (r.input_metrics) {
@@ -175,19 +270,64 @@ export default {
           if (r.output_metrics) {
             allOutputMetrics.push(...r.output_metrics);
           }
+          if (totalFrames <= 5) {
+            const gradeStr = `L${grade}`;
+            const outputSummary = (r.output_metrics || []).map(
+              o => `${o.name}:${o.non_empty ? 'HAS_DATA' : 'EMPTY'}(${o.data_size || 0}B)`
+            ).join(', ');
+            const reasonStr = r.grade_reason ? ` [${r.grade_reason}]` : '';
+            console.log(`[S2] Frame #${totalFrames}: ${gradeStr}${reasonStr}, ${r.process_time_ms?.toFixed(3)}ms, out=${r.total_output_bytes || 0}B, outputs=[${outputSummary}]`);
+          }
+          if (totalFrames % 50 === 0) {
+            const avgMs = frameTimes.slice(-50).reduce((a, b) => a + b, 0) / 50;
+            console.log(`[S2] Progress: ${totalFrames} frames, L1=${l1Frames} L2=${l2Frames}, last50 avg=${avgMs.toFixed(3)}ms`);
+          }
         }
       } else {
         skippedTicks++;
+        if (skippedTicks <= 3) {
+          const present = [...latestValues.keys()];
+          const missing = [...requiredSet].filter(r => !latestValues.has(r));
+          console.log(`[S2] Skipped tick #${skippedTicks}: have=[${present}], missing required=[${missing}]`);
+        }
       }
 
       tickTime = tickTime + intervalNs;
     }
 
+    const harnessKeywords = ['STANDBY', 'NO_BEV_MAP', 'NO_SD_ROUTE', 'not find nearest', 'not received', 'FAKED', 'error', 'failed', 'VPM', 'Harness', 'Frame', 'DESER', 'inject'];
+    const relevantStderr = stderrLines.filter(line =>
+      harnessKeywords.some(kw => line.toLowerCase().includes(kw.toLowerCase()))
+    );
+    if (relevantStderr.length > 0) {
+      console.log(`[S2] === Harness diagnostic stderr (${relevantStderr.length} lines) ===`);
+      for (const line of relevantStderr.slice(0, 20)) {
+        console.log('[S2] stderr:', line);
+      }
+      if (relevantStderr.length > 20) {
+        console.log(`[S2] ... and ${relevantStderr.length - 20} more`);
+      }
+    }
+
+    const stderrErrorLines = stderrLines.filter(line =>
+      /\b(ERROR|FATAL)\b/i.test(line)
+    );
+    const vpmErrorLines = stderrLines.filter(line =>
+      /get vehicle pose failed|VPM.*FAIL/i.test(line)
+    );
+    const avgOutputBytes = totalFrames > 0 ? totalOutputBytes / totalFrames : 0;
+
     const evidence = {
       totalFrames,
       okFrames,
+      l1Frames,
+      l2Frames,
       frameTimes,
       stderrLines,
+      stderrErrorLines,
+      vpmErrorLines,
+      totalOutputBytes,
+      avgOutputBytes,
     };
     // Run perf_replay: send all frames as a batch to harness for tight-loop
     // execution while perf is sampling, then stop perf.
@@ -233,7 +373,8 @@ export default {
         }
 
         if (batchFrames.length > 0) {
-          console.log('[S2] perf_replay: sending', batchFrames.length, 'frames x20 repeats');
+          const perfRepeat = 100;
+          console.log('[S2] perf_replay: sending', batchFrames.length, 'frames x' + perfRepeat + ' repeats');
 
           const perfReplayPromise = new Promise((resolve) => {
             const handler = (event) => {
@@ -244,13 +385,13 @@ export default {
               }
             };
             ws.addEventListener('message', handler);
-            setTimeout(() => { ws.removeEventListener('message', handler); resolve(null); }, 60000);
+            setTimeout(() => { ws.removeEventListener('message', handler); resolve(null); }, 120000);
           });
 
           ws.send(JSON.stringify({
             cmd: 'perf_replay',
             frames: batchFrames,
-            repeat: 20,
+            repeat: perfRepeat,
           }));
 
           const perfReplayResult = await perfReplayPromise;
@@ -274,8 +415,14 @@ export default {
 
     ctx.setEvidence('S2', 'totalFrames', totalFrames);
     ctx.setEvidence('S2', 'okFrames', okFrames);
+    ctx.setEvidence('S2', 'l1Frames', l1Frames);
+    ctx.setEvidence('S2', 'l2Frames', l2Frames);
     ctx.setEvidence('S2', 'frameTimes', frameTimes);
     ctx.setEvidence('S2', 'stderrLines', stderrLines);
+    ctx.setEvidence('S2', 'stderrErrorLines', stderrErrorLines);
+    ctx.setEvidence('S2', 'vpmErrorLines', vpmErrorLines);
+    ctx.setEvidence('S2', 'totalOutputBytes', totalOutputBytes);
+    ctx.setEvidence('S2', 'avgOutputBytes', avgOutputBytes);
     ctx.setEvidence('S2', 'allInputMetrics', allInputMetrics);
     ctx.setEvidence('S2', 'allOutputMetrics', allOutputMetrics);
 
@@ -291,8 +438,11 @@ export default {
       status: errors.length > 0 ? 'failed' : warnings.length > 0 ? 'warn' : 'passed',
       totalFrames,
       okFrames,
+      l1Frames,
+      l2Frames,
       skippedTicks,
       totalMessages: rawMsgs.length,
+      avgOutputBytes: Math.round(avgOutputBytes),
       frameTimes,
       warnings,
       findings,
@@ -307,10 +457,21 @@ export default {
     const p50 = sorted.length > 0 ? sorted[Math.floor(sorted.length * 0.5)] : 0;
     const p99 = sorted.length > 0 ? sorted[Math.floor(sorted.length * 0.99)] : 0;
 
+    const total = result.totalFrames || 0;
+    const l1 = result.l1Frames ?? result.okFrames ?? 0;
+    const l2 = result.l2Frames ?? 0;
+    const l1Cls = l1 === total ? 'at-grade-pass' : l1 > 0 ? 'at-grade-partial' : 'at-grade-fail';
+    const l2Cls = l2 === total ? 'at-grade-pass' : l2 > total * 0.5 ? 'at-grade-partial' : 'at-grade-fail';
+
     el.innerHTML = `
+      <div class="at-grade-row">
+        <div class="at-grade ${l1Cls}"><span class="at-grade-val">${l1}/${total}</span><span class="at-grade-label">L1 No Crash</span></div>
+        <div class="at-grade ${l2Cls}"><span class="at-grade-val">${l2}/${total}</span><span class="at-grade-label">L2 Effective</span></div>
+        <div class="at-grade at-grade-na"><span class="at-grade-val">N/A</span><span class="at-grade-label">L3 Consistent</span></div>
+      </div>
       <div class="at-stats-row">
-        <div class="at-stat"><span class="at-stat-val">${result.totalFrames}</span><span class="at-stat-label">Frames</span></div>
-        <div class="at-stat"><span class="at-stat-val">${result.okFrames}</span><span class="at-stat-label">OK</span></div>
+        <div class="at-stat"><span class="at-stat-val">${total}</span><span class="at-stat-label">Frames</span></div>
+        <div class="at-stat"><span class="at-stat-val">${result.avgOutputBytes ?? 0}B</span><span class="at-stat-label">Avg Output</span></div>
         <div class="at-stat"><span class="at-stat-val">${result.skippedTicks}</span><span class="at-stat-label">Skipped</span></div>
         <div class="at-stat"><span class="at-stat-val">${avg.toFixed(2)}ms</span><span class="at-stat-label">Avg</span></div>
         <div class="at-stat"><span class="at-stat-val">${p50.toFixed(2)}ms</span><span class="at-stat-label">p50</span></div>
@@ -428,6 +589,24 @@ function buildRawMsgsFromCache(cache, inputTopics, startTimeNs) {
   }
   msgs.sort((a, b) => (a.logTime < b.logTime ? -1 : a.logTime > b.logTime ? 1 : 0));
   return msgs;
+}
+
+function collectGlobalServiceTopics(nodeId) {
+  const gs = nexisConfig.globalServices;
+  if (!gs) {
+    return [];
+  }
+  const proc = nexisConfig.processes?.[nodeId];
+  const procSubTopics = new Set((proc?.sub || []).map(s => s.topic));
+  const feeds = [];
+  for (const [serviceName, svc] of Object.entries(gs)) {
+    for (const [label, info] of Object.entries(svc.feedTopics || {})) {
+      if (procSubTopics.has(info.topic)) {
+        feeds.push({ service: serviceName, label, topic: info.topic, proto: info.proto });
+      }
+    }
+  }
+  return feeds;
 }
 
 function esc(s) {

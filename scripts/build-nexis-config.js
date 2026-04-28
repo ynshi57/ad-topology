@@ -767,6 +767,25 @@ for (const taskKey of execKeysCopy) {
   }
 }
 
-const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows, executorTasks, processExecutors, executorDependencies };
+const globalServices = {
+  VehiclePoseManager: {
+    feedTopics: {
+      DR: {
+        topic: '/localization/100hz/localization_vehicle_speed',
+        proto: 'neodrive.global.localization_dr.LocalizationVehicleSpeed',
+      },
+      GNSS: {
+        topic: '/localization/100hz/inspvax_gnss_msf',
+        proto: 'neodrive.global.localization.LocalizationEstimate',
+      },
+      CAN: {
+        topic: '/canbus/vehicle_speed/Vehicle_speed',
+        proto: 'neodrive.global.canbus.PbCarStatus',
+      },
+    },
+  },
+};
+
+const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows, executorTasks, processExecutors, executorDependencies, globalServices };
 writeFileSync(OUTPUT, JSON.stringify(config, null, 2));
 console.log(`\nWritten to ${OUTPUT}`);
