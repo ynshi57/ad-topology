@@ -312,6 +312,7 @@ Every view, panel, modal, and overlay in ad-topology MUST have a visible, human-
 | **Timeline** | `timeline.js` | Playback controls and scrubber |
 | **3D View** | `scene-3d.js` / `main.js` | Three.js 3D visualization |
 | **3D Topics** | `scene-topics.js` | Left-side toggle list for 3D topics |
+| **Camera View** | `camera-panel.js` / `main.js` | Multi-camera grid with AVIF frame playback |
 | **Replay Test** | `test-panel.js` | Modal for module rebuild and replay testing |
 | **Node Tooltip** | `graph.js` | Hover popup showing node info |
 | **Link Tooltip** | `graph.js` | Hover popup showing link/topic info |
@@ -325,3 +326,4 @@ Every view, panel, modal, and overlay in ad-topology MUST have a visible, human-
 5. The Replay Test modal MUST display a `.tp-runtime-badge` showing the module runtime type: `Nexis IExecutor` (green) or `CyberRT Component` (amber).
 6. The Node Detail header MUST display an `.nd-runtime-badge` showing the runtime type.
 7. When adding a new view or panel, assign it a canonical name, add it to this table, and add the `data-view-name` attribute and visible label.
+8. When adding, modifying, or deleting UI interfaces, it is necessary to first draw a rough UI effect for the user and wait for their consent before coding

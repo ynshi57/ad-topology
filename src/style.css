@@ -1952,6 +1952,448 @@ html, body {
 }
 .at-report-summary { margin-bottom: 16px; }
 
+/* ==========================================================================
+   CAMERA PANEL
+   ========================================================================== */
+
+.cam-panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.cam-sidebar {
+  width: 180px;
+  min-width: 140px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cam-sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.cam-sidebar-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.cam-sidebar-count {
+  font-size: 9px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--text-tertiary);
+}
+.cam-sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.cam-sidebar-list::-webkit-scrollbar { width: 4px; }
+.cam-sidebar-list::-webkit-scrollbar-thumb { background: #282828; border-radius: 2px; }
+
+.cam-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: background 0.1s;
+}
+.cam-sidebar-item:hover { background: rgba(255,255,255,0.03); }
+.cam-sidebar-item input[type="checkbox"] {
+  accent-color: var(--white);
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.cam-sidebar-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cam-sidebar-btns {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+}
+.cam-sidebar-btn {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 500;
+  flex: 1;
+  padding: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.cam-sidebar-btn:hover {
+  background: var(--chip-bg);
+  color: var(--text-secondary);
+}
+.cam-sidebar-btn.active {
+  background: var(--white);
+  color: var(--black);
+  border-color: var(--white);
+}
+.cam-sidebar-btn-focus {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+.cam-sidebar-btn-focus:hover {
+  background: rgba(59,130,246,0.15);
+  color: #60a5fa;
+}
+.cam-sidebar-zone {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  background: rgba(255,255,255,0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  min-width: 26px;
+  text-align: center;
+}
+.cam-cell-zone-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 6px;
+  font-size: 8px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.4);
+  background: rgba(0,0,0,0.5);
+  padding: 1px 5px;
+  border-radius: 3px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.cam-grid-container {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+}
+
+/* --- Spatial grid: vehicle-centric layout --- */
+.cam-spatial-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto 1fr 1fr;
+  grid-template-rows: auto 1fr 1fr 1fr auto;
+  grid-template-areas:
+    ".     front front front ."
+    "left  left  car   right right"
+    "left  left  car   right right"
+    "left  left  car   right right"
+    ".     rear  rear  rear  .";
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: 6px;
+  background: #050505;
+}
+
+.cam-zone { display: flex; gap: 3px; overflow: hidden; }
+.cam-zone-front { grid-area: front; flex-direction: row; }
+.cam-zone-left  { grid-area: left;  flex-direction: column; }
+.cam-zone-right { grid-area: right; flex-direction: column; }
+.cam-zone-rear  { grid-area: rear;  flex-direction: row; justify-content: center; }
+.cam-zone > .cam-cell { flex: 1; min-width: 0; min-height: 0; }
+.cam-zone-rear > .cam-cell { flex: 0 1 25%; max-width: 25%; }
+
+.cam-zone-car {
+  grid-area: car;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+  padding: 8px;
+}
+.cam-vehicle-svg {
+  width: 80px;
+  height: auto;
+  opacity: 0.7;
+}
+
+/* --- Focus grid: 2x2 large view --- */
+.cam-focus-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  background: #050505;
+}
+.cam-cell-focus {
+  min-height: 0;
+}
+
+/* --- Cell base (shared across all layouts) --- */
+.cam-cell {
+  position: relative;
+  overflow: hidden;
+  background: #0f0f0f;
+  cursor: pointer;
+  transition: outline 0.15s;
+  border-radius: 4px;
+}
+.cam-cell:hover {
+  outline: 1px solid rgba(255,255,255,0.25);
+  outline-offset: -1px;
+}
+
+.cam-cell-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+.cam-cell-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+.cam-cell-fps {
+  font-size: 9px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.6);
+  background: rgba(0,0,0,0.5);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.cam-cell-img,
+.cam-cell-canvas {
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0f0f0f;
+}
+
+.cam-cell-noframe {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.cam-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* Floating preview overlay */
+.cam-float-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.cam-float-card {
+  width: 70%;
+  max-width: 900px;
+  max-height: 80%;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  position: relative;
+}
+.cam-float-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.cam-float-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+}
+.cam-float-fps {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: var(--chip-bg);
+  padding: 2px 10px;
+  border-radius: 999px;
+}
+.cam-float-info,
+.cam-float-close {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cam-float-info:hover,
+.cam-float-close:hover {
+  background: var(--chip-bg);
+  color: var(--text-primary);
+}
+.cam-float-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a0a;
+  min-height: 200px;
+  overflow: hidden;
+}
+.cam-float-canvas,
+.cam-float-img {
+  display: none;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Calibration overlay */
+.cam-fs-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.cam-calib-content {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  max-width: 480px;
+  width: 90%;
+  max-height: 80%;
+  overflow-y: auto;
+}
+.cam-calib-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.cam-calib-section {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 12px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.cam-calib-row {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 2px 0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+.cam-calib-row span {
+  color: var(--text-tertiary);
+  font-family: var(--font);
+  font-weight: 500;
+  margin-right: 6px;
+}
+.cam-calib-close {
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 16px;
+  padding: 6px 20px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: block;
+  transition: all 0.15s;
+}
+.cam-calib-close:hover { background: var(--chip-bg); color: var(--text-primary); }
+
+/* Camera area in topology view */
+.camera-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-width: 300px;
+}
+.cam-topics-area {
+  width: 180px;
+  min-width: 140px;
+  max-width: 400px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  flex-direction: column;
+}
+
+/* AVIF warning banner */
+.cam-avif-warn {
+  padding: 8px 16px;
+  background: rgba(245,158,11,0.12);
+  border-bottom: 1px solid rgba(245,158,11,0.3);
+  font-size: 11px;
+  color: #f59e0b;
+  text-align: center;
+}
+
 /* ============================================================
    Replay Test View — full-screen layout
    ============================================================ */

@@ -11,6 +11,9 @@ import { createReplayTestView } from './test-panel.js';
 import { create3DScene } from './scene-3d.js';
 import { createSceneTopics } from './scene-topics.js';
 import { createSplitter } from './splitter.js';
+import { initCameraDecoders, isCameraSchema } from './camera-decoder.js';
+import { createCameraPanel, buildCameraIndex } from './camera-panel.js';
+import { isCameraVideoTopic, isVideoStreamSchema } from './videostream-decoder.js';
 
 const app = document.getElementById('app');
 
@@ -23,6 +26,9 @@ let currentDetail = null;
 let current3DScene = null;
 let current3DTopics = null;
 let show3D = false;
+let showCamera = false;
+let currentCameraPanel = null;
+let cameraIndex = null;
 let activeSplitters = [];
 
 let sharedSummary = null;
@@ -426,8 +432,11 @@ async function handleFiles(files) {
     sharedTopology = buildTopologyFromChannels(sharedSummary.channels);
     sharedStartNs = sharedSummary.startTimeNs;
 
-    updateLoadingProgress(50, 'Initializing proto decoder...');
+    updateLoadingProgress(45, 'Initializing proto decoder...');
     await initDecoder(sharedSummary.readers);
+
+    updateLoadingProgress(55, 'Initializing camera decoder...');
+    await initCameraDecoders(sharedSummary.readers);
 
     updateLoadingProgress(70, 'Topology ready, building message index...');
     showTopologyView();
@@ -447,8 +456,16 @@ function showTopologyView() {
   const topology = sharedTopology;
   const fileNames = [...new Set(summary.channels.map(c => c.sourceFile))].join(', ');
 
-  // Identify foxglove channels for 3D panel
-  foxgloveChannels = summary.channels.filter(ch => ch.schemaName.startsWith('foxglove.'));
+  // Identify foxglove channels for 3D panel (exclude camera schemas)
+  foxgloveChannels = summary.channels.filter(ch =>
+    ch.schemaName.startsWith('foxglove.') && !isCameraSchema(ch.schemaName)
+  );
+
+  const hasCameras = (cameraIndex && cameraIndex.cameras.length > 0)
+    || summary.channels.some(ch =>
+      ch.schemaName === 'foxglove.CompressedImage'
+      || (isVideoStreamSchema(ch.schemaName) && isCameraVideoTopic(ch.topic))
+    );
 
   app.innerHTML = `
     <div class="topbar" data-view-name="Topology View">
@@ -459,20 +476,23 @@ function showTopologyView() {
         <span class="tb-file">${fileNames}</span>
         <span class="tb-stat">${summary.durationSec}s</span>
         <span class="tb-stat">${summary.totalMessages.toLocaleString()} msgs</span>
-        <span class="tb-stat">${summary.channels.length} ch</span>
+        <span class="tb-stat">${summary.channels.length} topics</span>
       </div>
       <div class="controls">
         <button class="btn ${show3D ? 'active' : ''}" id="btn-3d">3D</button>
+        ${hasCameras ? `<button class="btn ${showCamera ? 'active' : ''}" id="btn-camera">Camera</button>` : ''}
         <button class="btn" id="btn-refresh-config">Refresh Config</button>
         <button class="btn" id="btn-reset">Reset</button>
         <button class="btn" id="btn-new">New File</button>
       </div>
     </div>
+    <div id="cam-avif-warn-slot"></div>
     <div class="main-area">
       <div class="scene-topics-area" id="scene-topics-area" style="display:${show3D ? 'flex' : 'none'}"></div>
-      <div class="graph-area" id="graph-area" style="display:${show3D ? 'none' : 'block'}"></div>
+      <div class="graph-area" id="graph-area" style="display:${show3D || showCamera ? 'none' : 'block'}"></div>
       <div class="scene-3d-area" id="scene-3d-area" style="display:${show3D ? 'block' : 'none'}"></div>
-      <div class="panel-area" id="panel-area" style="display:${show3D ? 'none' : 'flex'}"></div>
+      <div class="camera-area" id="camera-area" style="display:${showCamera ? 'flex' : 'none'}" data-view-name="Camera View"></div>
+      <div class="panel-area" id="panel-area" style="display:${show3D || showCamera ? 'none' : 'flex'}"></div>
     </div>
     <div class="timeline-area" id="timeline-area"></div>
     <div class="output-area" id="output-area"></div>
@@ -513,15 +533,25 @@ function showTopologyView() {
   // 3D toggle button
   document.getElementById('btn-3d').addEventListener('click', () => {
     show3D = !show3D;
-    document.getElementById('btn-3d').classList.toggle('active', show3D);
-    document.getElementById('scene-topics-area').style.display = show3D ? 'flex' : 'none';
-    document.getElementById('graph-area').style.display = show3D ? 'none' : 'block';
-    document.getElementById('scene-3d-area').style.display = show3D ? 'block' : 'none';
-    document.getElementById('panel-area').style.display = show3D ? 'none' : 'flex';
-    if (show3D && !current3DScene) setup3DPanel();
+    if (show3D) { showCamera = false; }
+    updateMainAreaVisibility();
+    if (show3D && !current3DScene) { setup3DPanel(); }
     if (!show3D && current3DScene) { current3DScene.destroy(); current3DScene = null; }
     if (!show3D && current3DTopics) { current3DTopics.destroy(); current3DTopics = null; }
   });
+
+  // Camera toggle button
+  if (hasCameras) {
+    document.getElementById('btn-camera').addEventListener('click', () => {
+      showCamera = !showCamera;
+      if (showCamera) { show3D = false; }
+      updateMainAreaVisibility();
+      if (showCamera && !currentCameraPanel) { setupCameraPanel(); }
+      if (!showCamera && currentCameraPanel) { currentCameraPanel.destroy(); currentCameraPanel = null; }
+    });
+    if (showCamera) { setupCameraPanel(); }
+    showAvifWarning();
+  }
 
   const timelineArea = document.getElementById('timeline-area');
 
@@ -534,6 +564,13 @@ function showTopologyView() {
     }).then(() => {
       timelineArea.innerHTML = '';
       setupTimeline(timelineArea);
+      // Camera index is now ready; if user already switched to Camera tab,
+      // re-init the panel with the real data.
+      if (showCamera && cameraIndex && cameraIndex.cameras.length > 0) {
+        if (currentCameraPanel) { currentCameraPanel.destroy(); currentCameraPanel = null; }
+        setupCameraPanel();
+      }
+      showAvifWarning();
     }).catch(err => {
       console.error('Index failed:', err);
       timelineArea.innerHTML = `<div style="padding:12px 24px;color:#ef4444;font-size:12px">Index failed: ${err.message}</div>`;
@@ -586,6 +623,52 @@ function setup3DPanel() {
   });
 
   foxgloveCursors = {};
+}
+
+function updateMainAreaVisibility() {
+  const btn3d = document.getElementById('btn-3d');
+  const btnCam = document.getElementById('btn-camera');
+  if (btn3d) { btn3d.classList.toggle('active', show3D); }
+  if (btnCam) { btnCam.classList.toggle('active', showCamera); }
+
+  const sceneTopics = document.getElementById('scene-topics-area');
+  const graphArea = document.getElementById('graph-area');
+  const scene3d = document.getElementById('scene-3d-area');
+  const cameraArea = document.getElementById('camera-area');
+  const panelArea = document.getElementById('panel-area');
+
+  const showGraph = !show3D && !showCamera;
+  if (sceneTopics) { sceneTopics.style.display = show3D ? 'flex' : 'none'; }
+  if (graphArea) { graphArea.style.display = showGraph ? 'block' : 'none'; }
+  if (scene3d) { scene3d.style.display = show3D ? 'block' : 'none'; }
+  if (cameraArea) { cameraArea.style.display = showCamera ? 'flex' : 'none'; }
+  if (panelArea) { panelArea.style.display = showGraph ? 'flex' : 'none'; }
+
+  if (!show3D && current3DScene) { current3DScene.destroy(); current3DScene = null; }
+  if (!show3D && current3DTopics) { current3DTopics.destroy(); current3DTopics = null; }
+  if (!showCamera && currentCameraPanel) { currentCameraPanel.destroy(); currentCameraPanel = null; }
+}
+
+function setupCameraPanel() {
+  const cameraArea = document.getElementById('camera-area');
+  if (!cameraArea) { return; }
+  cameraArea.innerHTML = '';
+
+  if (!cameraIndex || cameraIndex.cameras.length === 0) {
+    cameraArea.innerHTML = '<div class="cam-empty">Building camera index... please wait</div>';
+    return;
+  }
+
+  currentCameraPanel = createCameraPanel(cameraArea, { cameraIndex });
+}
+
+function showAvifWarning() {
+  // No-op: warning is now shown dynamically by camera-panel when WASM fallback triggers
+}
+
+function updateCameraScene(currentSec, topicFreqs) {
+  if (!currentCameraPanel || !showCamera) { return; }
+  currentCameraPanel.update(currentSec, topicFreqs);
 }
 
 function update3DScene(currentSec) {
@@ -672,6 +755,11 @@ function setupTimeline(timelineArea) {
       // 3D scene update
       if (show3D && current3DScene) {
         update3DScene(currentSec);
+      }
+
+      // Camera panel update
+      if (showCamera && currentCameraPanel) {
+        updateCameraScene(currentSec, topicFreqs);
       }
 
       // Detail view: push pre-cached messages
@@ -906,12 +994,14 @@ async function buildMessageIndex(summary, onProgress) {
   msgDataCache = topicMsgData;
 
   // Foxglove topics drive the 3D scene every tick, so decode eagerly up
-  // front. Record-converted mcaps typically contain no foxglove topics, in
-  // which case this loop is a no-op.
+  // front. Skip CompressedImage / CameraCalibration / FrameTransform /
+  // VideoStream camera topics — those are handled by the camera panel.
   foxgloveDataCache = {};
   for (const [topic, msgs] of Object.entries(topicMsgData)) {
     const ch = sharedSummary.channels.find(c => c.topic === topic);
     if (!ch || !ch.schemaName?.startsWith('foxglove.')) continue;
+    if (isCameraSchema(ch.schemaName)) continue;
+    if (isVideoStreamSchema(ch.schemaName) && isCameraVideoTopic(topic)) continue;
     foxgloveDataCache[topic] = msgs.map(m => {
       if (m.decoded === undefined) {
         m.decoded = m.schemaId ? decodeMessage(m.schemaId, m.data) : null;
@@ -920,8 +1010,12 @@ async function buildMessageIndex(summary, onProgress) {
     });
   }
 
+  // Build camera index from CompressedImage channels (raw bytes, no decode)
+  cameraIndex = buildCameraIndex(sharedSummary, topicMsgData);
+
   console.log(`Index: ${count} msgs, ${Object.keys(buckets).length} buckets, ${Object.keys(msgTopicOffsets).length} topics`);
   console.log(`3D cache: ${Object.keys(foxgloveDataCache).length} foxglove topics`);
+  console.log(`Camera index: ${cameraIndex.cameras.length} cameras, ${Object.keys(cameraIndex.frameIndex).length} video topics`);
 }
 
 // =====================================================================
@@ -937,8 +1031,11 @@ function cleanupAll() {
   if (current3DScene) { current3DScene.destroy(); current3DScene = null; }
   if (current3DTopics) { current3DTopics.destroy(); current3DTopics = null; }
   if (currentReplayTest) { currentReplayTest.destroy(); currentReplayTest = null; }
+  if (currentCameraPanel) { currentCameraPanel.destroy(); currentCameraPanel = null; }
   sharedSummary = null; sharedTopology = null; sharedStartNs = null; sharedDesignHz = {};
   msgBucketIndex = null; msgTopicOffsets = null; msgTopicFirstSec = null; msgDataCache = null;
   foxgloveChannels = null; foxgloveDataCache = null; foxgloveCursors = {};
+  cameraIndex = null;
   show3D = false;
+  showCamera = false;
 }

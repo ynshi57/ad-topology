@@ -72,7 +72,17 @@ MCAP 是自动驾驶领域的标准录制格式（由 Foxglove 开发），支�
 | `*.lite.mcap` | ~30MB | 感知、规划、控制等数据 topic（79 channels） |
 | `*.camera.mcap` | ~26MB | 12 路摄像头视频流（28 channels） |
 
-### 3.4 Nexis 连接关系
+### 3.4 Camera 可视化
+
+加载 `camera.mcap` 后，点击顶栏 **Camera** 按钮进入 Camera View：
+
+- **左侧**：摄像头选择列表（默认显示前 6 路，可勾选切换）
+- **主区域**：自适应网格显示已选摄像头画面，每帧标注摄像头名称和实时帧率
+- **点击单路**：进入全屏模式，可查看 CameraCalibration 内参/外参信息
+- **图像格式**：foxglove.CompressedImage（AVIF），需 Chrome 85+ / Firefox 93+
+- **同步回放**：Camera View 与 Timeline 完全同步，支持变速回放
+
+### 3.6 Nexis 连接关系
 
 `nexis-config.json` 在构建时从以下配置文件自动生成：
 
@@ -84,7 +94,7 @@ MCAP 是自动驾驶领域的标准录制格式（由 Foxglove 开发），支�
 
 当前覆盖 **23 个进程**、**59 个 publisher topic**、**37 个 subscriber 关系**。
 
-### 3.5 可视化功能
+### 3.7 可视化功能
 
 **拓扑图**
 - 分层 DAG 布局：INPUT → STATE → PRE-PROCESS → PERCEPTION → PLANNING → CONTROL → AUX
@@ -206,6 +216,8 @@ ad-topology/
 │   ├── topic-panel.js              # 右侧 Topic 面板
 │   ├── output-panel.js             # 底部 Output 日志面板
 │   ├── mcap-loader.js              # MCAP 文件解析 (@mcap/core + fzstd)
+│   ├── camera-panel.js             # Camera View: 多路摄像头网格 + 全屏 + 标定信息
+│   ├── camera-decoder.js           # 摄像头 protobuf 解码器 (CompressedImage/Calibration/Transform)
 │   ├── topology-builder.js         # 融合引擎: mcap × nexis-config → 拓扑数据
 │   ├── nexis-config.json           # 预构建的进程通信关系 (自动生成)
 │   └── style.css                   # Uber Design System 风格样式
