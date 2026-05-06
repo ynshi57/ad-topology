@@ -71,6 +71,10 @@ make record2mcap_test -j
 | `--verify` | off | 转换完毕后回读 mcap，与 record 做抽样 byte-level 比对 |
 | `--verify-samples N` | 100 | `--verify` 抽样条数 |
 | `--report <path.json>` | `<output>.report.json` | transform report 输出位置 |
+| `--platform <name>` | 无 | 注入摄像头标定，例如 `X3PRO_25_L`、`X6`、`X6S`、`X2O`、`LONG_V2`、`ORIN`、`PRO`。注入 12 路 `*_camera_info` (foxglove.CameraCalibration) 和 12 路 `*_transform` (foxglove.FrameTransform) channel |
+| `--calib-param-root <dir>` | `perception/.../DefaultParam` | 覆盖摄像头 YAML 根目录 |
+| `--vehicle-config-root <dir>` | `common_neolix/conf/vehicle_config` | 覆盖 vehicle_config_*.json 目录 |
+| `--lidar-imu-yaml <path>` | `tools/autostart/adu/params/velodyne16_back_novatel_extrinsics.yaml` | 覆盖 lidar->IMU 标定 YAML |
 | `--quiet` | off | 抑制进度输出 |
 
 ### 常用示例
@@ -89,7 +93,30 @@ make record2mcap_test -j
 # 只关心 PNC 链路
 ./record2mcap demo.record.00000 demo.mcap \
   --include /pnc/control,/pnc/planning,/pnc/prediction,/maprouter/maps
+
+# 注入摄像头标定（12 路 camera_info + 12 路 transform）
+./record2mcap demo.record.00000 demo.mcap --platform X3PRO_25_L
 ```
+
+## 摄像头标定注入
+
+传入 `--platform` 时，转换器会读取车型对应的标定文件并注入到输出 mcap 中：
+
+| 数据来源 | 路径 | 用途 |
+| --- | --- | --- |
+| 摄像头内参 | `<calib-param-root>/<platform>/x3p_camera_<idx>_*_intrinsics.yaml` | 12 路相机的 K、distortion 等 |
+| 摄像头到 lidar 的外参 | `<calib-param-root>/<platform>/x3p_camera_<idx>_*_to_velodyne16_back_extrinsics.yaml` | 摄像头相对 lidar 的位姿 |
+| lidar 到 IMU 的外参 | `<lidar-imu-yaml>` | velodyne_back 相对 novatel IMU |
+| IMU 到 BEV 的外参 | `<vehicle-config-root>/vehicle_config_<platform_lc>.json` | `imu_to_rear_axle_center_dist` |
+
+注入到输出 mcap 的 channel：
+
+- `/sensor/camera/<name>/image/video_camera_info` → `foxglove.CameraCalibration`（每路 1 条静态消息）
+- `/sensor/camera/<name>/image/video_transform` → `foxglove.FrameTransform`（每路 1 条静态消息，parent=`bev`，child=相机 frame）
+
+变换链：`bev <- imu <- velodyne16_back <- camera`，最终 transform 表达 camera 在车体后轴中心坐标系下的位姿。
+
+注意：DefaultParam 是车型默认标定，单车精标定可能略有偏差（约 0.5 m 量级）。如果需要某辆具体车的标定，传入 `--calib-param-root` 指向该车的 `/home/caros/adu/params` 目录即可。
 
 ## 报告格式
 

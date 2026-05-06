@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+import "Quaternion.proto";
+import "Time.proto";
+import "Vector3.proto";
+
+package foxglove;
+
+// Adapted from foxglove/schemas (MIT licensed).
+// Transform between two coordinate frames.
+message FrameTransform {
+  // Timestamp of transform
+  Time timestamp = 1;
+
+  // Name of the parent frame
+  string parent_frame_id = 2;
+
+  // Name of the child frame
+  string child_frame_id = 3;
+
+  // Translation component of the transform
+  Vector3 translation = 4;
+
+  // Rotation component of the transform
+  Quaternion rotation = 5;
+}

@@ -8,6 +8,8 @@
 import { decodeCameraFrame, decodeCameraCalibration, decodeFrameTransform } from './camera-decoder.js';
 import { decodeAvifToImageData } from './avif-polyfill.js';
 import { isCameraVideoTopic, isVideoStreamSchema, parseVideoStream, createH264Decoder, isWebCodecsAvailable } from './videostream-decoder.js';
+import { parseBevMap, parseOccResult, expandOccCells, isBevMapSchema, isOccResultSchema } from './bev-decoder.js';
+import { renderBev, createBevViewState, attachPanZoom } from './bev-renderer.js';
 
 const AVIF_SUPPORT = checkAvifSupport();
 
@@ -101,6 +103,13 @@ export function createCameraPanel(container, opts) {
   const webCodecsOk = isWebCodecsAvailable();
   const cellElements = {};
   const cellParents = {};
+
+  // BEV view state
+  const bevIndex = cameraIndex.bevIndex || { bevTopics: [], occTopics: [], frameIndex: {} };
+  const bevView = createBevViewState();
+  const bevCursors = {};
+  let bevDataCache = { bevMap: null, occResult: null, occCells: null };
+  let bevPanZoomUnbind = null;
 
   let viewMode = 'spatial'; // 'spatial' | 'focus' | 'fullscreen'
   let fullscreenCamera = null;
@@ -203,9 +212,9 @@ export function createCameraPanel(container, opts) {
     rearRow.className = 'cam-zone cam-zone-rear';
     for (const { cam } of zones.rear) { appendCellToZone(rearRow, cam); }
 
+    // Center column is now empty (BEV view on the right provides vehicle context)
     const carCenter = document.createElement('div');
     carCenter.className = 'cam-zone-car';
-    carCenter.innerHTML = makeVehicleSvg();
 
     spatialGrid.appendChild(frontRow);
     spatialGrid.appendChild(leftCol);
@@ -216,6 +225,9 @@ export function createCameraPanel(container, opts) {
     for (const { cam } of zones.other) {
       appendCellToZone(rearRow, cam);
     }
+
+    // BEV side area
+    const bevArea = buildBevArea();
 
     const focusGrid = document.createElement('div');
     focusGrid.className = 'cam-focus-grid';
@@ -252,12 +264,86 @@ export function createCameraPanel(container, opts) {
       if (fullscreenCamera) { toggleCalibrationOverlay(fullscreenCamera, floatOverlay.querySelector('#cam-float-card')); }
     });
 
-    gridContainer.appendChild(spatialGrid);
+    // Layout container that holds spatial grid (left) + bev area (right)
+    const cameraBevWrap = document.createElement('div');
+    cameraBevWrap.className = 'cam-bev-wrap';
+    cameraBevWrap.appendChild(spatialGrid);
+    cameraBevWrap.appendChild(bevArea);
+
+    gridContainer.appendChild(cameraBevWrap);
     gridContainer.appendChild(focusGrid);
     gridContainer.appendChild(floatOverlay);
 
     el.appendChild(sidebar);
     el.appendChild(gridContainer);
+  }
+
+  function buildBevArea() {
+    const wrap = document.createElement('div');
+    wrap.className = 'bev-area';
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'bev-canvas';
+    canvas.id = 'bev-canvas';
+    wrap.appendChild(canvas);
+
+    const layerBar = document.createElement('div');
+    layerBar.className = 'bev-layer-bar';
+    layerBar.innerHTML = `
+      <button class="bev-layer-btn active" data-layer="lanes">Lanes</button>
+      <button class="bev-layer-btn active" data-layer="objects">Objects</button>
+      <button class="bev-layer-btn active" data-layer="occupancy">Occupancy</button>
+    `;
+    wrap.appendChild(layerBar);
+
+    layerBar.querySelectorAll('.bev-layer-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const layer = btn.dataset.layer;
+        const active = !btn.classList.contains('active');
+        btn.classList.toggle('active', active);
+        if (layer === 'lanes') { bevView.showLanes = active; }
+        else if (layer === 'objects') { bevView.showObjects = active; }
+        else if (layer === 'occupancy') { bevView.showOccupancy = active; }
+        requestBevRedraw();
+      });
+    });
+
+    return wrap;
+  }
+
+  function ensureBevCanvasSize() {
+    const canvas = document.getElementById('bev-canvas');
+    if (!canvas) { return null; }
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(100, Math.floor(rect.width));
+    const h = Math.max(100, Math.floor(rect.height));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    return canvas;
+  }
+
+  let bevRedrawScheduled = false;
+  function requestBevRedraw() {
+    if (bevRedrawScheduled) { return; }
+    bevRedrawScheduled = true;
+    requestAnimationFrame(() => {
+      bevRedrawScheduled = false;
+      const canvas = ensureBevCanvasSize();
+      if (!canvas) { return; }
+      const ctx = canvas.getContext('2d');
+      renderBev(ctx, { width: canvas.width, height: canvas.height }, bevView, bevDataCache);
+    });
+  }
+
+  function setupBevPanZoomLazy() {
+    if (bevPanZoomUnbind) { return; }
+    const canvas = document.getElementById('bev-canvas');
+    if (!canvas) { return; }
+    bevPanZoomUnbind = attachPanZoom(canvas, bevView, () => {
+      requestBevRedraw();
+    });
   }
 
   function createCell(cam) {
@@ -382,6 +468,8 @@ export function createCameraPanel(container, opts) {
   }
 
   function update(currentSec, topicFreqs) {
+    setupBevPanZoomLazy();
+
     const visible = cameras.filter(c => enabledSet.has(c.videoTopic));
 
     for (const cam of visible) {
@@ -421,6 +509,70 @@ export function createCameraPanel(container, opts) {
 
       updateFpsBadge(cam.videoTopic, topicFreqs);
     }
+
+    updateBev(currentSec);
+  }
+
+  function updateBev(currentSec) {
+    let changed = false;
+
+    // Pick latest BevMap message at-or-before currentSec
+    const bevTopic = bevIndex.bevTopics[0];
+    if (bevTopic) {
+      const frames = bevIndex.frameIndex[bevTopic];
+      if (frames && frames.length > 0) {
+        let lo = 0, hi = frames.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (frames[mid].sec <= currentSec) { lo = mid + 1; }
+          else { hi = mid; }
+        }
+        const idx = lo - 1;
+        if (idx >= 0 && bevCursors[bevTopic] !== idx) {
+          bevCursors[bevTopic] = idx;
+          const entry = msgDataCache[bevTopic]?.[frames[idx].dataIdx];
+          if (entry) {
+            try {
+              bevDataCache.bevMap = parseBevMap(entry.data);
+              changed = true;
+            } catch (e) {
+              console.warn('parseBevMap failed:', e);
+            }
+          }
+        }
+      }
+    }
+
+    // Same for OccResult
+    const occTopic = bevIndex.occTopics[0];
+    if (occTopic) {
+      const frames = bevIndex.frameIndex[occTopic];
+      if (frames && frames.length > 0) {
+        let lo = 0, hi = frames.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (frames[mid].sec <= currentSec) { lo = mid + 1; }
+          else { hi = mid; }
+        }
+        const idx = lo - 1;
+        if (idx >= 0 && bevCursors[occTopic] !== idx) {
+          bevCursors[occTopic] = idx;
+          const entry = msgDataCache[occTopic]?.[frames[idx].dataIdx];
+          if (entry) {
+            try {
+              const occ = parseOccResult(entry.data);
+              bevDataCache.occResult = occ;
+              bevDataCache.occCells = expandOccCells(occ);
+              changed = true;
+            } catch (e) {
+              console.warn('parseOccResult failed:', e);
+            }
+          }
+        }
+      }
+    }
+
+    if (changed) { requestBevRedraw(); }
   }
 
   function updateH264Camera(cam, targetIdx) {
@@ -592,6 +744,7 @@ export function createCameraPanel(container, opts) {
   function destroy() {
     Object.keys(blobUrls).forEach(revokeBlob);
     for (const dec of Object.values(h264Decoders)) { dec.destroy(); }
+    if (bevPanZoomUnbind) { bevPanZoomUnbind(); bevPanZoomUnbind = null; }
     el.remove();
   }
 
@@ -610,6 +763,11 @@ export function buildCameraIndex(summary, msgDataCache) {
   const videoChannels = [];
   const calibChannels = [];
   const transformChannels = [];
+  const bevTopics = [];     // BevMap topics, ordered by preference
+  const occTopics = [];     // OccResult topics
+
+  // Preferred BevMap topics in order: obj_infer (dynamic objects), then static (lanes), then map_tr, then debug
+  const bevTopicPriority = ['/perception/obj_infer', '/perception/static', '/perception/map_tr_infer', '/maprouter/debug_localmap'];
 
   for (const ch of summary.channels) {
     if (ch.schemaName === 'foxglove.CompressedImage') {
@@ -620,8 +778,19 @@ export function buildCameraIndex(summary, msgDataCache) {
       calibChannels.push(ch);
     } else if (ch.schemaName === 'foxglove.FrameTransform') {
       transformChannels.push(ch);
+    } else if (isBevMapSchema(ch.schemaName)) {
+      bevTopics.push(ch.topic);
+    } else if (isOccResultSchema(ch.schemaName)) {
+      occTopics.push(ch.topic);
     }
   }
+
+  // Sort bev topics by priority (most informative first)
+  bevTopics.sort((a, b) => {
+    const ai = bevTopicPriority.indexOf(a);
+    const bi = bevTopicPriority.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
 
   const frameIndex = {};
   const idrIndex = {};
@@ -673,7 +842,22 @@ export function buildCameraIndex(summary, msgDataCache) {
   }
 
   cameras.sort((a, b) => a.name.localeCompare(b.name));
-  return { cameras, frameIndex, idrIndex, msgDataCache };
+
+  // Build bev/occ frame index (sec -> dataIdx)
+  const bevFrameIndex = {};
+  for (const topic of [...bevTopics, ...occTopics]) {
+    const msgs = msgDataCache[topic];
+    if (!msgs) { continue; }
+    bevFrameIndex[topic] = msgs.map((m, i) => ({ sec: m.sec, dataIdx: i }));
+  }
+
+  return {
+    cameras,
+    frameIndex,
+    idrIndex,
+    msgDataCache,
+    bevIndex: { bevTopics, occTopics, frameIndex: bevFrameIndex },
+  };
 }
 
 export { AVIF_SUPPORT };

@@ -30,6 +30,15 @@ struct ConvertOptions {
     int verifySampleCount = 100;
     // Optional report path; defaults to outputPath + ".report.json".
     std::string reportPath;
+    // Optional platform (e.g. "X3PRO_25_L"). When set, the converter loads
+    // calibration YAML/JSON files for that platform and injects
+    // foxglove.CameraCalibration + foxglove.FrameTransform channels for each
+    // camera present in the record.
+    std::string platform;
+    // Optional path overrides for calibration injection. Empty -> defaults.
+    std::string calibrationParamRoot;     // perception/.../DefaultParam
+    std::string vehicleConfigRoot;        // common_neolix/conf/vehicle_config
+    std::string lidarImuYamlPath;         // velodyne16_back_novatel_extrinsics.yaml
 };
 
 struct ChannelReport {
@@ -60,6 +69,12 @@ struct ConvertReport {
     uint64_t verifySamples = 0;
     uint64_t verifyMismatches = 0;
     std::string verifyNotes;
+    // Calibration injection results.
+    bool calibrationInjectionRan = false;
+    int injectedCalibrationChannels = 0;
+    int injectedTransformChannels = 0;
+    std::vector<std::string> calibrationWarnings;
+    std::string calibrationError;
 };
 
 // Runs the conversion. Returns true on full success. Fills outReport with

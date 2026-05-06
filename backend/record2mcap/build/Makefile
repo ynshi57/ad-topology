@@ -65,16 +65,6 @@ CMAKE_BINARY_DIR = /home/caros/workspace/ad-topology/backend/record2mcap/build
 #=============================================================================
 # Targets provided globally by CMake.
 
-# Special rule for the target test
-test:
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Running tests..."
-	/usr/local/bin/ctest --force-new-ctest-process $(ARGS)
-.PHONY : test
-
-# Special rule for the target test
-test/fast: test
-.PHONY : test/fast
-
 # Special rule for the target edit_cache
 edit_cache:
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --cyan "Running CMake cache editor..."
@@ -127,6 +117,19 @@ depend:
 .PHONY : depend
 
 #=============================================================================
+# Target rules for targets named foxglove_proto_codegen
+
+# Build rule for target.
+foxglove_proto_codegen: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 foxglove_proto_codegen
+.PHONY : foxglove_proto_codegen
+
+# fast build rule for target.
+foxglove_proto_codegen/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/foxglove_proto_codegen.dir/build.make CMakeFiles/foxglove_proto_codegen.dir/build
+.PHONY : foxglove_proto_codegen/fast
+
+#=============================================================================
 # Target rules for targets named record2mcap
 
 # Build rule for target.
@@ -139,18 +142,149 @@ record2mcap/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/build
 .PHONY : record2mcap/fast
 
-#=============================================================================
-# Target rules for targets named record2mcap_test
+foxglove_proto_gen/CameraCalibration.pb.o: foxglove_proto_gen/CameraCalibration.pb.cc.o
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.o
 
-# Build rule for target.
-record2mcap_test: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 record2mcap_test
-.PHONY : record2mcap_test
+# target to build an object file
+foxglove_proto_gen/CameraCalibration.pb.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.cc.o
 
-# fast build rule for target.
-record2mcap_test/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/build
-.PHONY : record2mcap_test/fast
+foxglove_proto_gen/CameraCalibration.pb.i: foxglove_proto_gen/CameraCalibration.pb.cc.i
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/CameraCalibration.pb.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.i
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.cc.i
+
+foxglove_proto_gen/CameraCalibration.pb.s: foxglove_proto_gen/CameraCalibration.pb.cc.s
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/CameraCalibration.pb.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.s
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.cc.s
+
+foxglove_proto_gen/FrameTransform.pb.o: foxglove_proto_gen/FrameTransform.pb.cc.o
+.PHONY : foxglove_proto_gen/FrameTransform.pb.o
+
+# target to build an object file
+foxglove_proto_gen/FrameTransform.pb.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o
+.PHONY : foxglove_proto_gen/FrameTransform.pb.cc.o
+
+foxglove_proto_gen/FrameTransform.pb.i: foxglove_proto_gen/FrameTransform.pb.cc.i
+.PHONY : foxglove_proto_gen/FrameTransform.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/FrameTransform.pb.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.i
+.PHONY : foxglove_proto_gen/FrameTransform.pb.cc.i
+
+foxglove_proto_gen/FrameTransform.pb.s: foxglove_proto_gen/FrameTransform.pb.cc.s
+.PHONY : foxglove_proto_gen/FrameTransform.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/FrameTransform.pb.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.s
+.PHONY : foxglove_proto_gen/FrameTransform.pb.cc.s
+
+foxglove_proto_gen/Quaternion.pb.o: foxglove_proto_gen/Quaternion.pb.cc.o
+.PHONY : foxglove_proto_gen/Quaternion.pb.o
+
+# target to build an object file
+foxglove_proto_gen/Quaternion.pb.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o
+.PHONY : foxglove_proto_gen/Quaternion.pb.cc.o
+
+foxglove_proto_gen/Quaternion.pb.i: foxglove_proto_gen/Quaternion.pb.cc.i
+.PHONY : foxglove_proto_gen/Quaternion.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/Quaternion.pb.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.i
+.PHONY : foxglove_proto_gen/Quaternion.pb.cc.i
+
+foxglove_proto_gen/Quaternion.pb.s: foxglove_proto_gen/Quaternion.pb.cc.s
+.PHONY : foxglove_proto_gen/Quaternion.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/Quaternion.pb.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.s
+.PHONY : foxglove_proto_gen/Quaternion.pb.cc.s
+
+foxglove_proto_gen/Time.pb.o: foxglove_proto_gen/Time.pb.cc.o
+.PHONY : foxglove_proto_gen/Time.pb.o
+
+# target to build an object file
+foxglove_proto_gen/Time.pb.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o
+.PHONY : foxglove_proto_gen/Time.pb.cc.o
+
+foxglove_proto_gen/Time.pb.i: foxglove_proto_gen/Time.pb.cc.i
+.PHONY : foxglove_proto_gen/Time.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/Time.pb.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.i
+.PHONY : foxglove_proto_gen/Time.pb.cc.i
+
+foxglove_proto_gen/Time.pb.s: foxglove_proto_gen/Time.pb.cc.s
+.PHONY : foxglove_proto_gen/Time.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/Time.pb.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.s
+.PHONY : foxglove_proto_gen/Time.pb.cc.s
+
+foxglove_proto_gen/Vector3.pb.o: foxglove_proto_gen/Vector3.pb.cc.o
+.PHONY : foxglove_proto_gen/Vector3.pb.o
+
+# target to build an object file
+foxglove_proto_gen/Vector3.pb.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o
+.PHONY : foxglove_proto_gen/Vector3.pb.cc.o
+
+foxglove_proto_gen/Vector3.pb.i: foxglove_proto_gen/Vector3.pb.cc.i
+.PHONY : foxglove_proto_gen/Vector3.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/Vector3.pb.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.i
+.PHONY : foxglove_proto_gen/Vector3.pb.cc.i
+
+foxglove_proto_gen/Vector3.pb.s: foxglove_proto_gen/Vector3.pb.cc.s
+.PHONY : foxglove_proto_gen/Vector3.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/Vector3.pb.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.s
+.PHONY : foxglove_proto_gen/Vector3.pb.cc.s
+
+src/calibration_injector.o: src/calibration_injector.cc.o
+.PHONY : src/calibration_injector.o
+
+# target to build an object file
+src/calibration_injector.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o
+.PHONY : src/calibration_injector.cc.o
+
+src/calibration_injector.i: src/calibration_injector.cc.i
+.PHONY : src/calibration_injector.i
+
+# target to preprocess a source file
+src/calibration_injector.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/calibration_injector.cc.i
+.PHONY : src/calibration_injector.cc.i
+
+src/calibration_injector.s: src/calibration_injector.cc.s
+.PHONY : src/calibration_injector.s
+
+# target to generate assembly for a file
+src/calibration_injector.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/calibration_injector.cc.s
+.PHONY : src/calibration_injector.cc.s
 
 src/main.o: src/main.cc.o
 .PHONY : src/main.o
@@ -182,7 +316,6 @@ src/mcap_impl.o: src/mcap_impl.cc.o
 # target to build an object file
 src/mcap_impl.cc.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/src/mcap_impl.cc.o
 .PHONY : src/mcap_impl.cc.o
 
 src/mcap_impl.i: src/mcap_impl.cc.i
@@ -191,7 +324,6 @@ src/mcap_impl.i: src/mcap_impl.cc.i
 # target to preprocess a source file
 src/mcap_impl.cc.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/mcap_impl.cc.i
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/src/mcap_impl.cc.i
 .PHONY : src/mcap_impl.cc.i
 
 src/mcap_impl.s: src/mcap_impl.cc.s
@@ -200,7 +332,6 @@ src/mcap_impl.s: src/mcap_impl.cc.s
 # target to generate assembly for a file
 src/mcap_impl.cc.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/mcap_impl.cc.s
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/src/mcap_impl.cc.s
 .PHONY : src/mcap_impl.cc.s
 
 src/record_to_mcap.o: src/record_to_mcap.cc.o
@@ -209,7 +340,6 @@ src/record_to_mcap.o: src/record_to_mcap.cc.o
 # target to build an object file
 src/record_to_mcap.cc.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/src/record_to_mcap.cc.o
 .PHONY : src/record_to_mcap.cc.o
 
 src/record_to_mcap.i: src/record_to_mcap.cc.i
@@ -218,7 +348,6 @@ src/record_to_mcap.i: src/record_to_mcap.cc.i
 # target to preprocess a source file
 src/record_to_mcap.cc.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.i
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/src/record_to_mcap.cc.i
 .PHONY : src/record_to_mcap.cc.i
 
 src/record_to_mcap.s: src/record_to_mcap.cc.s
@@ -227,32 +356,7 @@ src/record_to_mcap.s: src/record_to_mcap.cc.s
 # target to generate assembly for a file
 src/record_to_mcap.cc.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap.dir/build.make CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.s
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/src/record_to_mcap.cc.s
 .PHONY : src/record_to_mcap.cc.s
-
-tests/record2mcap_test.o: tests/record2mcap_test.cc.o
-.PHONY : tests/record2mcap_test.o
-
-# target to build an object file
-tests/record2mcap_test.cc.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/tests/record2mcap_test.cc.o
-.PHONY : tests/record2mcap_test.cc.o
-
-tests/record2mcap_test.i: tests/record2mcap_test.cc.i
-.PHONY : tests/record2mcap_test.i
-
-# target to preprocess a source file
-tests/record2mcap_test.cc.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/tests/record2mcap_test.cc.i
-.PHONY : tests/record2mcap_test.cc.i
-
-tests/record2mcap_test.s: tests/record2mcap_test.cc.s
-.PHONY : tests/record2mcap_test.s
-
-# target to generate assembly for a file
-tests/record2mcap_test.cc.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/record2mcap_test.dir/build.make CMakeFiles/record2mcap_test.dir/tests/record2mcap_test.cc.s
-.PHONY : tests/record2mcap_test.cc.s
 
 # Help Target
 help:
@@ -262,9 +366,26 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
-	@echo "... test"
+	@echo "... foxglove_proto_codegen"
 	@echo "... record2mcap"
-	@echo "... record2mcap_test"
+	@echo "... foxglove_proto_gen/CameraCalibration.pb.o"
+	@echo "... foxglove_proto_gen/CameraCalibration.pb.i"
+	@echo "... foxglove_proto_gen/CameraCalibration.pb.s"
+	@echo "... foxglove_proto_gen/FrameTransform.pb.o"
+	@echo "... foxglove_proto_gen/FrameTransform.pb.i"
+	@echo "... foxglove_proto_gen/FrameTransform.pb.s"
+	@echo "... foxglove_proto_gen/Quaternion.pb.o"
+	@echo "... foxglove_proto_gen/Quaternion.pb.i"
+	@echo "... foxglove_proto_gen/Quaternion.pb.s"
+	@echo "... foxglove_proto_gen/Time.pb.o"
+	@echo "... foxglove_proto_gen/Time.pb.i"
+	@echo "... foxglove_proto_gen/Time.pb.s"
+	@echo "... foxglove_proto_gen/Vector3.pb.o"
+	@echo "... foxglove_proto_gen/Vector3.pb.i"
+	@echo "... foxglove_proto_gen/Vector3.pb.s"
+	@echo "... src/calibration_injector.o"
+	@echo "... src/calibration_injector.i"
+	@echo "... src/calibration_injector.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"
@@ -274,9 +395,6 @@ help:
 	@echo "... src/record_to_mcap.o"
 	@echo "... src/record_to_mcap.i"
 	@echo "... src/record_to_mcap.s"
-	@echo "... tests/record2mcap_test.o"
-	@echo "... tests/record2mcap_test.i"
-	@echo "... tests/record2mcap_test.s"
 .PHONY : help
 
 

@@ -69,10 +69,45 @@ include CMakeFiles/record2mcap.dir/progress.make
 # Include the compile flags for this target's objects.
 include CMakeFiles/record2mcap.dir/flags.make
 
+foxglove_proto_gen/Time.pb.cc: /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/Time.proto
+foxglove_proto_gen/Time.pb.cc: /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/Vector3.proto
+foxglove_proto_gen/Time.pb.cc: /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/Quaternion.proto
+foxglove_proto_gen/Time.pb.cc: /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/CameraCalibration.proto
+foxglove_proto_gen/Time.pb.cc: /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/FrameTransform.proto
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Generating foxglove proto C++ sources"
+	/home/caros/workspace/gears/x86_64/bin/protoc --proto_path=/home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas --cpp_out=/home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/Time.proto /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/Vector3.proto /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/Quaternion.proto /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/CameraCalibration.proto /home/caros/workspace/ad-topology/backend/record2mcap/third_party/foxglove_schemas/FrameTransform.proto
+
+foxglove_proto_gen/Vector3.pb.cc: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/Vector3.pb.cc
+
+foxglove_proto_gen/Quaternion.pb.cc: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/Quaternion.pb.cc
+
+foxglove_proto_gen/CameraCalibration.pb.cc: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/CameraCalibration.pb.cc
+
+foxglove_proto_gen/FrameTransform.pb.cc: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/FrameTransform.pb.cc
+
+foxglove_proto_gen/Time.pb.h: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/Time.pb.h
+
+foxglove_proto_gen/Vector3.pb.h: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/Vector3.pb.h
+
+foxglove_proto_gen/Quaternion.pb.h: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/Quaternion.pb.h
+
+foxglove_proto_gen/CameraCalibration.pb.h: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/CameraCalibration.pb.h
+
+foxglove_proto_gen/FrameTransform.pb.h: foxglove_proto_gen/Time.pb.cc
+	@$(CMAKE_COMMAND) -E touch_nocreate foxglove_proto_gen/FrameTransform.pb.h
+
 CMakeFiles/record2mcap.dir/src/main.cc.o: CMakeFiles/record2mcap.dir/flags.make
 CMakeFiles/record2mcap.dir/src/main.cc.o: /home/caros/workspace/ad-topology/backend/record2mcap/src/main.cc
 CMakeFiles/record2mcap.dir/src/main.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/record2mcap.dir/src/main.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/record2mcap.dir/src/main.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/src/main.cc.o -MF CMakeFiles/record2mcap.dir/src/main.cc.o.d -o CMakeFiles/record2mcap.dir/src/main.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/src/main.cc
 
 CMakeFiles/record2mcap.dir/src/main.cc.i: cmake_force
@@ -86,7 +121,7 @@ CMakeFiles/record2mcap.dir/src/main.cc.s: cmake_force
 CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o: CMakeFiles/record2mcap.dir/flags.make
 CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o: /home/caros/workspace/ad-topology/backend/record2mcap/src/record_to_mcap.cc
 CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o -MF CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o.d -o CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/src/record_to_mcap.cc
 
 CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.i: cmake_force
@@ -100,7 +135,7 @@ CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.s: cmake_force
 CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o: CMakeFiles/record2mcap.dir/flags.make
 CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o: /home/caros/workspace/ad-topology/backend/record2mcap/src/mcap_impl.cc
 CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o -MF CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o.d -o CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/src/mcap_impl.cc
 
 CMakeFiles/record2mcap.dir/src/mcap_impl.cc.i: cmake_force
@@ -111,11 +146,101 @@ CMakeFiles/record2mcap.dir/src/mcap_impl.cc.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/record2mcap.dir/src/mcap_impl.cc.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/caros/workspace/ad-topology/backend/record2mcap/src/mcap_impl.cc -o CMakeFiles/record2mcap.dir/src/mcap_impl.cc.s
 
+CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o: CMakeFiles/record2mcap.dir/flags.make
+CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o: /home/caros/workspace/ad-topology/backend/record2mcap/src/calibration_injector.cc
+CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o -MF CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o.d -o CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/src/calibration_injector.cc
+
+CMakeFiles/record2mcap.dir/src/calibration_injector.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/record2mcap.dir/src/calibration_injector.cc.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/caros/workspace/ad-topology/backend/record2mcap/src/calibration_injector.cc > CMakeFiles/record2mcap.dir/src/calibration_injector.cc.i
+
+CMakeFiles/record2mcap.dir/src/calibration_injector.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/record2mcap.dir/src/calibration_injector.cc.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/caros/workspace/ad-topology/backend/record2mcap/src/calibration_injector.cc -o CMakeFiles/record2mcap.dir/src/calibration_injector.cc.s
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o: CMakeFiles/record2mcap.dir/flags.make
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o: foxglove_proto_gen/Time.pb.cc
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o -MF CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o.d -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Time.pb.cc
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Time.pb.cc > CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.i
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Time.pb.cc -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.s
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o: CMakeFiles/record2mcap.dir/flags.make
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o: foxglove_proto_gen/Vector3.pb.cc
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o -MF CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o.d -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Vector3.pb.cc
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Vector3.pb.cc > CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.i
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Vector3.pb.cc -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.s
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o: CMakeFiles/record2mcap.dir/flags.make
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o: foxglove_proto_gen/Quaternion.pb.cc
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o -MF CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o.d -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Quaternion.pb.cc
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Quaternion.pb.cc > CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.i
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/Quaternion.pb.cc -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.s
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o: CMakeFiles/record2mcap.dir/flags.make
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o: foxglove_proto_gen/CameraCalibration.pb.cc
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o -MF CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o.d -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/CameraCalibration.pb.cc
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/CameraCalibration.pb.cc > CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.i
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/CameraCalibration.pb.cc -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.s
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o: CMakeFiles/record2mcap.dir/flags.make
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o: foxglove_proto_gen/FrameTransform.pb.cc
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o: CMakeFiles/record2mcap.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o -MF CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o.d -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o -c /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/FrameTransform.pb.cc
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/FrameTransform.pb.cc > CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.i
+
+CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/caros/workspace/ad-topology/backend/record2mcap/build/foxglove_proto_gen/FrameTransform.pb.cc -o CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.s
+
 # Object files for target record2mcap
 record2mcap_OBJECTS = \
 "CMakeFiles/record2mcap.dir/src/main.cc.o" \
 "CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o" \
-"CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o"
+"CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o" \
+"CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o" \
+"CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o" \
+"CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o" \
+"CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o" \
+"CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o" \
+"CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o"
 
 # External object files for target record2mcap
 record2mcap_EXTERNAL_OBJECTS =
@@ -123,9 +248,15 @@ record2mcap_EXTERNAL_OBJECTS =
 record2mcap: CMakeFiles/record2mcap.dir/src/main.cc.o
 record2mcap: CMakeFiles/record2mcap.dir/src/record_to_mcap.cc.o
 record2mcap: CMakeFiles/record2mcap.dir/src/mcap_impl.cc.o
+record2mcap: CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o
+record2mcap: CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o
+record2mcap: CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o
+record2mcap: CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o
+record2mcap: CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o
+record2mcap: CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o
 record2mcap: CMakeFiles/record2mcap.dir/build.make
 record2mcap: CMakeFiles/record2mcap.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX executable record2mcap"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Linking CXX executable record2mcap"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/record2mcap.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
@@ -136,7 +267,16 @@ CMakeFiles/record2mcap.dir/clean:
 	$(CMAKE_COMMAND) -P CMakeFiles/record2mcap.dir/cmake_clean.cmake
 .PHONY : CMakeFiles/record2mcap.dir/clean
 
-CMakeFiles/record2mcap.dir/depend:
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/CameraCalibration.pb.cc
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/CameraCalibration.pb.h
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/FrameTransform.pb.cc
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/FrameTransform.pb.h
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/Quaternion.pb.cc
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/Quaternion.pb.h
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/Time.pb.cc
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/Time.pb.h
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/Vector3.pb.cc
+CMakeFiles/record2mcap.dir/depend: foxglove_proto_gen/Vector3.pb.h
 	cd /home/caros/workspace/ad-topology/backend/record2mcap/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/caros/workspace/ad-topology/backend/record2mcap /home/caros/workspace/ad-topology/backend/record2mcap /home/caros/workspace/ad-topology/backend/record2mcap/build /home/caros/workspace/ad-topology/backend/record2mcap/build /home/caros/workspace/ad-topology/backend/record2mcap/build/CMakeFiles/record2mcap.dir/DependInfo.cmake "--color=$(COLOR)"
 .PHONY : CMakeFiles/record2mcap.dir/depend
 

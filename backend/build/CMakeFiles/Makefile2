@@ -81,6 +81,7 @@ clean: record2mcap/clean
 # Directory level rules for directory record2mcap
 
 # Recursive "all" directory target.
+record2mcap/all: record2mcap/CMakeFiles/foxglove_proto_codegen.dir/all
 record2mcap/all: record2mcap/CMakeFiles/record2mcap.dir/all
 .PHONY : record2mcap/all
 
@@ -89,6 +90,7 @@ record2mcap/preinstall:
 .PHONY : record2mcap/preinstall
 
 # Recursive "clean" directory target.
+record2mcap/clean: record2mcap/CMakeFiles/foxglove_proto_codegen.dir/clean
 record2mcap/clean: record2mcap/CMakeFiles/record2mcap.dir/clean
 .PHONY : record2mcap/clean
 
@@ -130,7 +132,7 @@ CMakeFiles/record2mcap_all.dir/all: record2mcap/CMakeFiles/record2mcap.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/record2mcap_all.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 4
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 15
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/record2mcap_all.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 0
 .PHONY : CMakeFiles/record2mcap_all.dir/rule
@@ -145,18 +147,44 @@ CMakeFiles/record2mcap_all.dir/clean:
 .PHONY : CMakeFiles/record2mcap_all.dir/clean
 
 #=============================================================================
+# Target rules for target record2mcap/CMakeFiles/foxglove_proto_codegen.dir
+
+# All Build rule for target.
+record2mcap/CMakeFiles/foxglove_proto_codegen.dir/all:
+	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/foxglove_proto_codegen.dir/build.make record2mcap/CMakeFiles/foxglove_proto_codegen.dir/depend
+	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/foxglove_proto_codegen.dir/build.make record2mcap/CMakeFiles/foxglove_proto_codegen.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/caros/workspace/ad-topology/backend/build/CMakeFiles --progress-num=5,6,7,8 "Built target foxglove_proto_codegen"
+.PHONY : record2mcap/CMakeFiles/foxglove_proto_codegen.dir/all
+
+# Build rule for subdir invocation for target.
+record2mcap/CMakeFiles/foxglove_proto_codegen.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 4
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 record2mcap/CMakeFiles/foxglove_proto_codegen.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 0
+.PHONY : record2mcap/CMakeFiles/foxglove_proto_codegen.dir/rule
+
+# Convenience name for target.
+foxglove_proto_codegen: record2mcap/CMakeFiles/foxglove_proto_codegen.dir/rule
+.PHONY : foxglove_proto_codegen
+
+# clean rule for target.
+record2mcap/CMakeFiles/foxglove_proto_codegen.dir/clean:
+	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/foxglove_proto_codegen.dir/build.make record2mcap/CMakeFiles/foxglove_proto_codegen.dir/clean
+.PHONY : record2mcap/CMakeFiles/foxglove_proto_codegen.dir/clean
+
+#=============================================================================
 # Target rules for target record2mcap/CMakeFiles/record2mcap.dir
 
 # All Build rule for target.
-record2mcap/CMakeFiles/record2mcap.dir/all:
+record2mcap/CMakeFiles/record2mcap.dir/all: record2mcap/CMakeFiles/foxglove_proto_codegen.dir/all
 	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/depend
 	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/caros/workspace/ad-topology/backend/build/CMakeFiles --progress-num=5,6,7,8 "Built target record2mcap"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/caros/workspace/ad-topology/backend/build/CMakeFiles --progress-num=9,10,11,12,13,14,15,16,17,18,19 "Built target record2mcap"
 .PHONY : record2mcap/CMakeFiles/record2mcap.dir/all
 
 # Build rule for subdir invocation for target.
 record2mcap/CMakeFiles/record2mcap.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 4
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 15
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 record2mcap/CMakeFiles/record2mcap.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/caros/workspace/ad-topology/backend/build/CMakeFiles 0
 .PHONY : record2mcap/CMakeFiles/record2mcap.dir/rule

@@ -1,0 +1,30 @@
+
+j
+Quaternion.protofoxglove"D
+
+Quaternion
+x (Rx
+y (Ry
+z (Rz
+w (Rwbproto3
+L
+
+Time.protofoxglove",
+Time
+sec (Rsec
+nsec (Rnsecbproto3
+V
+Vector3.protofoxglove"3
+Vector3
+x (Rx
+y (Ry
+z (Rzbproto3
+Ë
+FrameTransform.protofoxgloveQuaternion.proto
+Time.protoVector3.proto"ó
+FrameTransform,
+	timestamp (2.foxglove.TimeR	timestamp&
+parent_frame_id (	RparentFrameId$
+child_frame_id (	RchildFrameId3
+translation (2.foxglove.Vector3Rtranslation0
+rotation (2.foxglove.QuaternionRrotationbproto3

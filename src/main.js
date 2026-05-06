@@ -66,7 +66,7 @@ checkUrlParams();
  * @param {{verify?: boolean, overwrite?: boolean, onLog?: (line: string) => void}} opts
  */
 async function convertRecordOnServer(recordPath, opts = {}) {
-  const { verify = false, overwrite = true, onLog = () => {} } = opts;
+  const { verify = false, overwrite = true, platform = 'auto', onLog = () => {} } = opts;
   const resp = await fetch('http://localhost:8765/record2mcap', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -75,6 +75,7 @@ async function convertRecordOnServer(recordPath, opts = {}) {
       verify,
       verifySamples: verify ? 50 : 0,
       overwrite,
+      platform,
     }),
   });
 
@@ -239,6 +240,21 @@ function showDropZone() {
         </div>
         <div class="dz-record-opts">
           <label class="dz-record-opt">
+            <span class="dz-record-opt-label">Platform:</span>
+            <select id="dz-platform" class="dz-platform-select">
+              <option value="auto">Auto-detect</option>
+              <option value="X3PRO_25_L">X3PRO_25_L</option>
+              <option value="X3PRO_25">X3PRO_25</option>
+              <option value="X6">X6</option>
+              <option value="X6S">X6S</option>
+              <option value="X2O">X2O</option>
+              <option value="LONG_V2">LONG_V2</option>
+              <option value="LONG">LONG</option>
+              <option value="ORIN">ORIN</option>
+              <option value="PRO">PRO</option>
+            </select>
+          </label>
+          <label class="dz-record-opt">
             <input type="checkbox" id="dz-record-verify" />
             <span>verify (sample-check 50, record only)</span>
           </label>
@@ -310,6 +326,13 @@ function showDropZone() {
     }
   });
 
+  // Restore last-used platform from localStorage
+  try {
+    const savedPlatform = localStorage.getItem('ad-topology-platform');
+    const platformSel = document.getElementById('dz-platform');
+    if (savedPlatform && platformSel) { platformSel.value = savedPlatform; }
+  } catch {}
+
   document.getElementById('dz-record-load').addEventListener('click', async () => {
     const inputPathRaw = document.getElementById('dz-record-path').value.trim();
     if (!inputPathRaw) {
@@ -317,6 +340,8 @@ function showDropZone() {
     }
     const verify = document.getElementById('dz-record-verify').checked;
     const overwrite = document.getElementById('dz-record-overwrite').checked;
+    const platform = document.getElementById('dz-platform').value;
+    try { localStorage.setItem('ad-topology-platform', platform); } catch {}
     const logEl = document.getElementById('dz-record-log');
     const btn = document.getElementById('dz-record-load');
     logEl.style.display = 'block';
@@ -338,9 +363,15 @@ function showDropZone() {
         mcapPath = inputPathRaw;
         filename = inputPathRaw.split('/').pop() || 'remote.mcap';
       } else {
+        if (platform && platform !== 'auto') {
+          appendLog(`platform: ${platform}`);
+        } else {
+          appendLog('platform: auto-detect');
+        }
         const converted = await convertRecordOnServer(inputPathRaw, {
           verify,
           overwrite,
+          platform,
           onLog: appendLog,
         });
         appendLog(`downloading ${converted.filename} (${converted.sizeMB} MB)...`);
@@ -1016,6 +1047,9 @@ async function buildMessageIndex(summary, onProgress) {
   console.log(`Index: ${count} msgs, ${Object.keys(buckets).length} buckets, ${Object.keys(msgTopicOffsets).length} topics`);
   console.log(`3D cache: ${Object.keys(foxgloveDataCache).length} foxglove topics`);
   console.log(`Camera index: ${cameraIndex.cameras.length} cameras, ${Object.keys(cameraIndex.frameIndex).length} video topics`);
+  if (cameraIndex.bevIndex) {
+    console.log(`BEV index: ${cameraIndex.bevIndex.bevTopics.length} BevMap topics, ${cameraIndex.bevIndex.occTopics.length} OccResult topics`);
+  }
 }
 
 // =====================================================================

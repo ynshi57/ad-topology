@@ -19,6 +19,11 @@ void PrintUsage(const char* argv0) {
         << "  --verify                        Sample-check 100 messages byte-for-byte\n"
         << "  --verify-samples N              Override number of verify samples\n"
         << "  --report <path.json>            Output report path (default: <out>.report.json)\n"
+        << "  --platform <name>               Inject camera calibration for this vehicle\n"
+        << "                                  platform (e.g. X3PRO_25_L, X6, X6S, X2O...)\n"
+        << "  --calib-param-root <dir>        Override DefaultParam root directory\n"
+        << "  --vehicle-config-root <dir>     Override vehicle_config directory\n"
+        << "  --lidar-imu-yaml <path>         Override velodyne16_back_novatel YAML\n"
         << "  --quiet                         Suppress progress output\n"
         << "  -h, --help                      Show this help\n";
 }
@@ -118,6 +123,14 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "--report") {
             options.reportPath = next(arg);
+        } else if (arg == "--platform") {
+            options.platform = next(arg);
+        } else if (arg == "--calib-param-root") {
+            options.calibrationParamRoot = next(arg);
+        } else if (arg == "--vehicle-config-root") {
+            options.vehicleConfigRoot = next(arg);
+        } else if (arg == "--lidar-imu-yaml") {
+            options.lidarImuYamlPath = next(arg);
         } else if (arg == "--quiet") {
             quiet = true;
         } else {
@@ -150,6 +163,10 @@ int main(int argc, char** argv) {
         if (options.verify) {
             std::cout << "  verify samples: " << options.verifySampleCount << std::endl;
         }
+        if (!options.platform.empty()) {
+            std::cout << "  platform = " << options.platform
+                      << " (calibration injection enabled)" << std::endl;
+        }
         std::cout << "  report = " << options.reportPath << std::endl;
     }
 
@@ -174,6 +191,18 @@ int main(int argc, char** argv) {
         if (options.verify) {
             std::cout << "verify: " << report.verifySamples << " samples, "
                       << report.verifyMismatches << " mismatches" << std::endl;
+        }
+        if (report.calibrationInjectionRan) {
+            std::cout << "calibration injection: "
+                      << report.injectedCalibrationChannels << " camera_info + "
+                      << report.injectedTransformChannels << " transform channels"
+                      << std::endl;
+            if (!report.calibrationError.empty()) {
+                std::cout << "  error: " << report.calibrationError << std::endl;
+            }
+            for (const auto& w : report.calibrationWarnings) {
+                std::cout << "  warn: " << w << std::endl;
+            }
         }
     }
 

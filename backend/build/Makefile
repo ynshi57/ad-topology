@@ -143,6 +143,19 @@ record2mcap_all/fast:
 .PHONY : record2mcap_all/fast
 
 #=============================================================================
+# Target rules for targets named foxglove_proto_codegen
+
+# Build rule for target.
+foxglove_proto_codegen: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 foxglove_proto_codegen
+.PHONY : foxglove_proto_codegen
+
+# fast build rule for target.
+foxglove_proto_codegen/fast:
+	$(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/foxglove_proto_codegen.dir/build.make record2mcap/CMakeFiles/foxglove_proto_codegen.dir/build
+.PHONY : foxglove_proto_codegen/fast
+
+#=============================================================================
 # Target rules for targets named record2mcap
 
 # Build rule for target.
@@ -235,6 +248,7 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... foxglove_proto_codegen"
 	@echo "... record2mcap_all"
 	@echo "... executor_harness"
 	@echo "... record2mcap"

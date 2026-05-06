@@ -1,0 +1,6 @@
+# Hashes of file build rules.
+a9e666e737a611d862ca7785d7766bd4 CMakeFiles/foxglove_proto_codegen
+e75339a6a14336178eee58b846fc556b foxglove_fds/CameraCalibration.fds
+ea0141364862c5dbde86fc616c0e1b04 foxglove_fds/FrameTransform.fds
+1c63301b18e90831bb051973ccdb18d5 foxglove_proto_gen/Time.pb.cc
+0ea0b6379afd16f399f8416cb43e968b foxglove_proto_gen/foxglove_fds_data.h

@@ -1,2 +1,7 @@
 # Hashes of file build rules.
 7a63afd3120557a09f14f14fec3666b8 CMakeFiles/record2mcap_all
+5c7ce78915396192088621dd61609da0 record2mcap/CMakeFiles/foxglove_proto_codegen
+0b8f49f379b7b176b4c632aa56536c7d record2mcap/foxglove_fds/CameraCalibration.fds
+d33873757994e30e5c172e4bea4a9edd record2mcap/foxglove_fds/FrameTransform.fds
+7c16cf832f0402ced6bdbdaf6343ca9d record2mcap/foxglove_proto_gen/Time.pb.cc
+68d2c77a0db6f10da7d3d2c15f16f40a record2mcap/foxglove_proto_gen/foxglove_fds_data.h

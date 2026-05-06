@@ -1,0 +1,20 @@
+
+L
+
+Time.protofoxglove",
+Time
+sec (Rsec
+nsec (Rnsecbproto3
+³
+CameraCalibration.protofoxglove
+Time.proto"ù
+CameraCalibration,
+	timestamp (2.foxglove.TimeR	timestamp
+frame_id (	RframeId
+width (Rwidth
+height (Rheight)
+distortion_model (	RdistortionModel
+D (RD
+K (BRK
+R (BRR
+P	 (BRPbproto3

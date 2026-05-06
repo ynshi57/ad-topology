@@ -47,5 +47,6 @@ set(CMAKE_MAKEFILE_PRODUCTS
 set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/executor_harness.dir/DependInfo.cmake"
   "CMakeFiles/record2mcap_all.dir/DependInfo.cmake"
+  "record2mcap/CMakeFiles/foxglove_proto_codegen.dir/DependInfo.cmake"
   "record2mcap/CMakeFiles/record2mcap.dir/DependInfo.cmake"
   )

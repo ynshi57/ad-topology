@@ -474,6 +474,9 @@ async function handleRecordToMcap(req, res) {
       args.push('--verify-samples', String(payload.verifySamples));
     }
   }
+  if (typeof payload.platform === 'string' && payload.platform && payload.platform !== 'auto') {
+    args.push('--platform', payload.platform);
+  }
   args.push('--report', reportPath);
 
   console.log('[record2mcap] spawn:', bin, args.join(' '));

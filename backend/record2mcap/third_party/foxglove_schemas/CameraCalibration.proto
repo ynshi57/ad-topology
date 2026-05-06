@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+import "Time.proto";
+
+package foxglove;
+
+// Adapted from foxglove/schemas (MIT licensed).
+// Camera calibration parameters using OpenCV pinhole model.
+message CameraCalibration {
+  // Timestamp of calibration data
+  Time timestamp = 1;
+
+  // Frame of reference for the camera. Each rendered camera image will be
+  // associated with this frame.
+  string frame_id = 2;
+
+  // Image width
+  fixed32 width = 3;
+
+  // Image height
+  fixed32 height = 4;
+
+  // Name of distortion model. Supported parameters: plumb_bob, rational_polynomial.
+  string distortion_model = 5;
+
+  // Distortion parameters
+  repeated double D = 6;
+
+  // Intrinsic camera matrix (3x3 row-major)
+  repeated double K = 7 [packed = true];
+
+  // Rectification matrix (stereo cameras only, 3x3 row-major)
+  repeated double R = 8 [packed = true];
+
+  // Projection/camera matrix (3x4 row-major)
+  repeated double P = 9 [packed = true];
+}

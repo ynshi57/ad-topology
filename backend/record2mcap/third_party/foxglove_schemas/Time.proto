@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package foxglove;
+
+// Adapted from foxglove/schemas (MIT licensed).
+// https://github.com/foxglove/schemas
+message Time {
+  int32 sec = 1;
+  uint32 nsec = 2;
+}

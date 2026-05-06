@@ -202,7 +202,7 @@ PKG_CONFIG_ARGN:STRING=
 PKG_CONFIG_EXECUTABLE:FILEPATH=/usr/bin/pkg-config
 
 //Build record2mcap unit tests
-RECORD2MCAP_BUILD_TESTS:BOOL=ON
+RECORD2MCAP_BUILD_TESTS:BOOL=OFF
 
 //Path to a library.
 pkgcfg_lib_JSONCPP_jsoncpp:FILEPATH=/usr/lib/x86_64-linux-gnu/libjsoncpp.so

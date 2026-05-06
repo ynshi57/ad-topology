@@ -312,7 +312,8 @@ Every view, panel, modal, and overlay in ad-topology MUST have a visible, human-
 | **Timeline** | `timeline.js` | Playback controls and scrubber |
 | **3D View** | `scene-3d.js` / `main.js` | Three.js 3D visualization |
 | **3D Topics** | `scene-topics.js` | Left-side toggle list for 3D topics |
-| **Camera View** | `camera-panel.js` / `main.js` | Multi-camera grid with AVIF frame playback |
+| **Camera View** | `camera-panel.js` / `main.js` | Multi-camera spatial grid + right-side BEV sub-area showing perception output (lanes, objects, occupancy) |
+| **BEV Sub-Area** | `bev-panel.js` (rendered inside Camera View) | Top-down 2D rendering of `BevMap`, `OccResult` (no separate top-bar entry; lives inside Camera View) |
 | **Replay Test** | `test-panel.js` | Modal for module rebuild and replay testing |
 | **Node Tooltip** | `graph.js` | Hover popup showing node info |
 | **Link Tooltip** | `graph.js` | Hover popup showing link/topic info |

@@ -10,6 +10,7 @@
 #include <random>
 #include <sstream>
 
+#include "calibration_injector.h"
 #include "cyber/record/record_message.h"
 #include "cyber/record/record_reader.h"
 
@@ -320,6 +321,42 @@ bool ConvertRecordToMcap(const ConvertOptions& options, ConvertReport* outReport
         recMsg = neodrive::cyber::record::RecordMessage();
     }
 
+    // Inject calibration messages before closing the writer.
+    if (!options.platform.empty()) {
+        CalibrationInjectionOptions injOpts;
+        injOpts.platform = options.platform;
+        injOpts.defaultParamRoot = options.calibrationParamRoot;
+        injOpts.vehicleConfigRoot = options.vehicleConfigRoot;
+        injOpts.lidarImuYamlPath = options.lidarImuYamlPath;
+        injOpts.timestampNs = firstNs == std::numeric_limits<uint64_t>::max() ? 0 : firstNs;
+
+        // Collect camera video topics seen in the record.
+        const std::string camPrefix = "/sensor/camera/";
+        const std::string videoSuffix = "/image/video";
+        for (const auto& [topic, _] : channels) {
+            if (topic.compare(0, camPrefix.size(), camPrefix) == 0 &&
+                topic.size() > videoSuffix.size() &&
+                topic.compare(topic.size() - videoSuffix.size(), videoSuffix.size(),
+                              videoSuffix) == 0) {
+                injOpts.presentCameraTopics.push_back(topic);
+            }
+        }
+
+        CalibrationInjectionReport injReport;
+        const bool injOk = InjectCalibration(writer, injOpts, &injReport);
+        outReport->calibrationInjectionRan = injReport.ran;
+        outReport->injectedCalibrationChannels = injReport.injectedCalibrationChannels;
+        outReport->injectedTransformChannels = injReport.injectedTransformChannels;
+        outReport->calibrationWarnings = injReport.warnings;
+        outReport->calibrationError = injReport.error;
+
+        if (!injOk && !injReport.error.empty()) {
+            // Don't fail the whole conversion -- log to report and continue.
+            std::cerr << "warn: calibration injection failed: " << injReport.error
+                      << std::endl;
+        }
+    }
+
     writer.close();
 
     outReport->totalMessages = totalMessages;
@@ -442,6 +479,30 @@ std::string ReportToJson(const ConvertReport& report) {
     out.append(": ");
     AppendString(out, report.verifyNotes);
     out.append("\n  }");
+
+    out.append(",\n  ");
+    AppendString(out, "calibration_injection");
+    out.append(": {\n    ");
+    AppendString(out, "ran");
+    out.append(std::string(": ") + (report.calibrationInjectionRan ? "true" : "false"));
+    out.append(",\n    ");
+    AppendString(out, "injected_calibration_channels");
+    out.append(": " + std::to_string(report.injectedCalibrationChannels));
+    out.append(",\n    ");
+    AppendString(out, "injected_transform_channels");
+    out.append(": " + std::to_string(report.injectedTransformChannels));
+    out.append(",\n    ");
+    AppendString(out, "error");
+    out.append(": ");
+    AppendString(out, report.calibrationError);
+    out.append(",\n    ");
+    AppendString(out, "warnings");
+    out.append(": [");
+    for (size_t i = 0; i < report.calibrationWarnings.size(); ++i) {
+        if (i > 0) { out.append(", "); }
+        AppendString(out, report.calibrationWarnings[i]);
+    }
+    out.append("]\n  }");
 
     out.append(",\n  ");
     AppendString(out, "channels");

@@ -117,6 +117,20 @@ depend:
 .PHONY : depend
 
 # Convenience name for target.
+record2mcap/CMakeFiles/foxglove_proto_codegen.dir/rule:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 record2mcap/CMakeFiles/foxglove_proto_codegen.dir/rule
+.PHONY : record2mcap/CMakeFiles/foxglove_proto_codegen.dir/rule
+
+# Convenience name for target.
+foxglove_proto_codegen: record2mcap/CMakeFiles/foxglove_proto_codegen.dir/rule
+.PHONY : foxglove_proto_codegen
+
+# fast build rule for target.
+foxglove_proto_codegen/fast:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/foxglove_proto_codegen.dir/build.make record2mcap/CMakeFiles/foxglove_proto_codegen.dir/build
+.PHONY : foxglove_proto_codegen/fast
+
+# Convenience name for target.
 record2mcap/CMakeFiles/record2mcap.dir/rule:
 	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 record2mcap/CMakeFiles/record2mcap.dir/rule
 .PHONY : record2mcap/CMakeFiles/record2mcap.dir/rule
@@ -129,6 +143,150 @@ record2mcap: record2mcap/CMakeFiles/record2mcap.dir/rule
 record2mcap/fast:
 	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/build
 .PHONY : record2mcap/fast
+
+foxglove_proto_gen/CameraCalibration.pb.o: foxglove_proto_gen/CameraCalibration.pb.cc.o
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.o
+
+# target to build an object file
+foxglove_proto_gen/CameraCalibration.pb.cc.o:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.o
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.cc.o
+
+foxglove_proto_gen/CameraCalibration.pb.i: foxglove_proto_gen/CameraCalibration.pb.cc.i
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/CameraCalibration.pb.cc.i:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.i
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.cc.i
+
+foxglove_proto_gen/CameraCalibration.pb.s: foxglove_proto_gen/CameraCalibration.pb.cc.s
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/CameraCalibration.pb.cc.s:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/CameraCalibration.pb.cc.s
+.PHONY : foxglove_proto_gen/CameraCalibration.pb.cc.s
+
+foxglove_proto_gen/FrameTransform.pb.o: foxglove_proto_gen/FrameTransform.pb.cc.o
+.PHONY : foxglove_proto_gen/FrameTransform.pb.o
+
+# target to build an object file
+foxglove_proto_gen/FrameTransform.pb.cc.o:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.o
+.PHONY : foxglove_proto_gen/FrameTransform.pb.cc.o
+
+foxglove_proto_gen/FrameTransform.pb.i: foxglove_proto_gen/FrameTransform.pb.cc.i
+.PHONY : foxglove_proto_gen/FrameTransform.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/FrameTransform.pb.cc.i:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.i
+.PHONY : foxglove_proto_gen/FrameTransform.pb.cc.i
+
+foxglove_proto_gen/FrameTransform.pb.s: foxglove_proto_gen/FrameTransform.pb.cc.s
+.PHONY : foxglove_proto_gen/FrameTransform.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/FrameTransform.pb.cc.s:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/FrameTransform.pb.cc.s
+.PHONY : foxglove_proto_gen/FrameTransform.pb.cc.s
+
+foxglove_proto_gen/Quaternion.pb.o: foxglove_proto_gen/Quaternion.pb.cc.o
+.PHONY : foxglove_proto_gen/Quaternion.pb.o
+
+# target to build an object file
+foxglove_proto_gen/Quaternion.pb.cc.o:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.o
+.PHONY : foxglove_proto_gen/Quaternion.pb.cc.o
+
+foxglove_proto_gen/Quaternion.pb.i: foxglove_proto_gen/Quaternion.pb.cc.i
+.PHONY : foxglove_proto_gen/Quaternion.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/Quaternion.pb.cc.i:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.i
+.PHONY : foxglove_proto_gen/Quaternion.pb.cc.i
+
+foxglove_proto_gen/Quaternion.pb.s: foxglove_proto_gen/Quaternion.pb.cc.s
+.PHONY : foxglove_proto_gen/Quaternion.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/Quaternion.pb.cc.s:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Quaternion.pb.cc.s
+.PHONY : foxglove_proto_gen/Quaternion.pb.cc.s
+
+foxglove_proto_gen/Time.pb.o: foxglove_proto_gen/Time.pb.cc.o
+.PHONY : foxglove_proto_gen/Time.pb.o
+
+# target to build an object file
+foxglove_proto_gen/Time.pb.cc.o:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.o
+.PHONY : foxglove_proto_gen/Time.pb.cc.o
+
+foxglove_proto_gen/Time.pb.i: foxglove_proto_gen/Time.pb.cc.i
+.PHONY : foxglove_proto_gen/Time.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/Time.pb.cc.i:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.i
+.PHONY : foxglove_proto_gen/Time.pb.cc.i
+
+foxglove_proto_gen/Time.pb.s: foxglove_proto_gen/Time.pb.cc.s
+.PHONY : foxglove_proto_gen/Time.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/Time.pb.cc.s:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Time.pb.cc.s
+.PHONY : foxglove_proto_gen/Time.pb.cc.s
+
+foxglove_proto_gen/Vector3.pb.o: foxglove_proto_gen/Vector3.pb.cc.o
+.PHONY : foxglove_proto_gen/Vector3.pb.o
+
+# target to build an object file
+foxglove_proto_gen/Vector3.pb.cc.o:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.o
+.PHONY : foxglove_proto_gen/Vector3.pb.cc.o
+
+foxglove_proto_gen/Vector3.pb.i: foxglove_proto_gen/Vector3.pb.cc.i
+.PHONY : foxglove_proto_gen/Vector3.pb.i
+
+# target to preprocess a source file
+foxglove_proto_gen/Vector3.pb.cc.i:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.i
+.PHONY : foxglove_proto_gen/Vector3.pb.cc.i
+
+foxglove_proto_gen/Vector3.pb.s: foxglove_proto_gen/Vector3.pb.cc.s
+.PHONY : foxglove_proto_gen/Vector3.pb.s
+
+# target to generate assembly for a file
+foxglove_proto_gen/Vector3.pb.cc.s:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/foxglove_proto_gen/Vector3.pb.cc.s
+.PHONY : foxglove_proto_gen/Vector3.pb.cc.s
+
+src/calibration_injector.o: src/calibration_injector.cc.o
+.PHONY : src/calibration_injector.o
+
+# target to build an object file
+src/calibration_injector.cc.o:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/src/calibration_injector.cc.o
+.PHONY : src/calibration_injector.cc.o
+
+src/calibration_injector.i: src/calibration_injector.cc.i
+.PHONY : src/calibration_injector.i
+
+# target to preprocess a source file
+src/calibration_injector.cc.i:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/src/calibration_injector.cc.i
+.PHONY : src/calibration_injector.cc.i
+
+src/calibration_injector.s: src/calibration_injector.cc.s
+.PHONY : src/calibration_injector.s
+
+# target to generate assembly for a file
+src/calibration_injector.cc.s:
+	cd /home/caros/workspace/ad-topology/backend/build && $(MAKE) $(MAKESILENT) -f record2mcap/CMakeFiles/record2mcap.dir/build.make record2mcap/CMakeFiles/record2mcap.dir/src/calibration_injector.cc.s
+.PHONY : src/calibration_injector.cc.s
 
 src/main.o: src/main.cc.o
 .PHONY : src/main.o
@@ -210,7 +368,26 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... foxglove_proto_codegen"
 	@echo "... record2mcap"
+	@echo "... foxglove_proto_gen/CameraCalibration.pb.o"
+	@echo "... foxglove_proto_gen/CameraCalibration.pb.i"
+	@echo "... foxglove_proto_gen/CameraCalibration.pb.s"
+	@echo "... foxglove_proto_gen/FrameTransform.pb.o"
+	@echo "... foxglove_proto_gen/FrameTransform.pb.i"
+	@echo "... foxglove_proto_gen/FrameTransform.pb.s"
+	@echo "... foxglove_proto_gen/Quaternion.pb.o"
+	@echo "... foxglove_proto_gen/Quaternion.pb.i"
+	@echo "... foxglove_proto_gen/Quaternion.pb.s"
+	@echo "... foxglove_proto_gen/Time.pb.o"
+	@echo "... foxglove_proto_gen/Time.pb.i"
+	@echo "... foxglove_proto_gen/Time.pb.s"
+	@echo "... foxglove_proto_gen/Vector3.pb.o"
+	@echo "... foxglove_proto_gen/Vector3.pb.i"
+	@echo "... foxglove_proto_gen/Vector3.pb.s"
+	@echo "... src/calibration_injector.o"
+	@echo "... src/calibration_injector.i"
+	@echo "... src/calibration_injector.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"

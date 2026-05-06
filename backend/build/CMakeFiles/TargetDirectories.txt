@@ -2,6 +2,7 @@
 /home/caros/workspace/ad-topology/backend/build/CMakeFiles/record2mcap_all.dir
 /home/caros/workspace/ad-topology/backend/build/CMakeFiles/edit_cache.dir
 /home/caros/workspace/ad-topology/backend/build/CMakeFiles/rebuild_cache.dir
+/home/caros/workspace/ad-topology/backend/build/record2mcap/CMakeFiles/foxglove_proto_codegen.dir
 /home/caros/workspace/ad-topology/backend/build/record2mcap/CMakeFiles/record2mcap.dir
 /home/caros/workspace/ad-topology/backend/build/record2mcap/CMakeFiles/edit_cache.dir
 /home/caros/workspace/ad-topology/backend/build/record2mcap/CMakeFiles/rebuild_cache.dir
