@@ -14,6 +14,7 @@ import { createSplitter } from './splitter.js';
 import { initCameraDecoders, isCameraSchema } from './camera-decoder.js';
 import { createCameraPanel, buildCameraIndex } from './camera-panel.js';
 import { isCameraVideoTopic, isVideoStreamSchema } from './videostream-decoder.js';
+import { loadYoloSidecar } from './yolo-overlay.js';
 
 const app = document.getElementById('app');
 
@@ -35,6 +36,8 @@ let sharedSummary = null;
 let sharedTopology = null;
 let sharedStartNs = null;
 let sharedDesignHz = {};
+let sharedYoloIndex = null;
+let sharedMcapPath = null;
 
 // Optimized message index
 let msgBucketIndex = null;   // bucketKey -> [topic, ...]
@@ -144,6 +147,45 @@ async function convertRecordOnServer(recordPath, opts = {}) {
   return { outputPath, filename, sizeMB, report: doneEvent.report };
 }
 
+/**
+ * Ask the server to locate an mcap by basename across known directories.
+ * Returns the absolute path if found, otherwise null.
+ */
+async function tryFindMcapPath(basename) {
+  if (!basename) { return null; }
+  try {
+    const r = await fetch(
+      `http://localhost:8765/find-mcap?name=${encodeURIComponent(basename)}`,
+    );
+    if (!r.ok) { return null; }
+    const j = await r.json();
+    return j.found ? j.path : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Strip non-S3 query params from an S3 pre-signed URL. S3 sigv4 only
+ * recognizes ``X-Amz-*`` query params; viz-platform leftovers like
+ * ``layoutId=13`` will break the signature on Baidu OBS (and possibly AWS).
+ */
+function cleanS3Url(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    const params = new URLSearchParams();
+    for (const [k, v] of u.searchParams) {
+      if (k.startsWith('X-Amz-')) {
+        params.set(k, v);
+      }
+    }
+    u.search = params.toString();
+    return u.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 function parseMcapUrls(input) {
   const urls = [];
 
@@ -156,32 +198,34 @@ function parseMcapUrls(input) {
     try { decoded = decodeURIComponent(decoded); } catch {}
     try { decoded = decodeURIComponent(decoded); } catch {}
 
-    // Split by 'ds.url=' to extract mcap URLs
+    // Split by 'ds.url=' to extract mcap URLs (the viz platform may pack
+    // multiple mcap URLs into one query string by chaining ``&ds.url=`` after
+    // a previous URL's signature).
     const parts = decoded.split('ds.url=');
     for (let i = 1; i < parts.length; i++) {
       let url = parts[i];
+      if (url.endsWith('&')) { url = url.slice(0, -1); }
 
-      // The URL ends at the next 'ds.url=' split or at known non-S3 params
-      // Remove trailing '&' if present
-      if (url.endsWith('&')) url = url.slice(0, -1);
-
-      // Remove any trailing viz platform params that aren't part of the S3 URL
-      const trailingParams = /&(id|recordName|time|carId|date)=/;
+      // Defensive: drop legacy viz platform tail params before structured
+      // cleanup. (URL parsing below handles any survivors.)
+      const trailingParams = /&(id|recordName|time|carId|date|layoutId)=/;
       const trailIdx = url.search(trailingParams);
-      if (trailIdx > 0) url = url.slice(0, trailIdx);
+      if (trailIdx > 0) { url = url.slice(0, trailIdx); }
 
-      if (url.includes('.mcap')) {
-        if (!urls.includes(url)) urls.push(url);
-      }
+      if (!url.includes('.mcap')) { continue; }
+
+      // Definitively remove all non-S3 query params.
+      const cleaned = cleanS3Url(url);
+      if (!urls.includes(cleaned)) { urls.push(cleaned); }
     }
 
     // If no ds.url found but input itself is a mcap URL
     if (urls.length === 0 && input.includes('.mcap')) {
-      urls.push(input);
+      urls.push(cleanS3Url(input));
     }
   } catch {
     if (input.startsWith('http') && input.includes('.mcap')) {
-      urls.push(input);
+      urls.push(cleanS3Url(input));
     }
   }
 
@@ -268,6 +312,17 @@ function showDropZone() {
           <div class="dz-progress-text" id="dz-progress-text"></div>
         </div>
         <pre class="dz-record-log" id="dz-record-log" style="display:none"></pre>
+
+        <div class="dz-recents" id="dz-recents">
+          <div class="dz-recents-header">
+            <span class="dz-recents-title">Recent files in mcap_file/</span>
+            <button class="dz-recents-refresh" id="dz-recents-refresh" title="Refresh">refresh</button>
+          </div>
+          <div class="dz-recents-list" id="dz-recents-list">
+            <div class="dz-recents-empty">loading...</div>
+          </div>
+        </div>
+
         <div class="dz-hint"><span class="dz-sample" id="dz-sample">Load sample from workspace</span></div>
       </div>
     </div>
@@ -299,23 +354,35 @@ function showDropZone() {
       const PROXY_BASE = 'http://localhost:8765/proxy?url=';
 
       const files = [];
+      const savedPaths = [];
       for (let i = 0; i < mcapUrls.length; i++) {
         const url = mcapUrls[i];
         const filename = url.split('/').pop().split('?')[0] || `remote_${i}.mcap`;
         showLoading(`Downloading ${filename} (${i + 1}/${mcapUrls.length})...`);
-        // Use backend proxy to avoid CORS issues
-        const proxyUrl = PROXY_BASE + encodeURIComponent(url);
+        // Use backend proxy to avoid CORS issues. Also ask the server to cache
+        // the bytes to /tmp/ad-topology-cache/<filename> so server-side tools
+        // (YOLO, etc.) can operate on the same data without a second upload.
+        const proxyUrl = PROXY_BASE + encodeURIComponent(url)
+          + '&save=' + encodeURIComponent(filename);
         const res = await fetch(proxyUrl);
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
           throw new Error(`Download failed for ${filename}: ${res.status} ${errText}`);
         }
+        const savedPath = res.headers.get('X-Saved-Path');
         const blob = await res.blob();
         files.push(new File([blob], filename, { type: 'application/octet-stream' }));
+        if (savedPath) {
+          savedPaths.push({ filename, path: savedPath });
+        }
       }
 
       if (files.length) {
-        await handleFiles(files);
+        // Prefer the camera mcap as the YOLO source (it is the one with
+        // /sensor/camera/* video streams). Fall back to the first saved path.
+        const cameraEntry = savedPaths.find(s => /camera\.mcap$/i.test(s.filename));
+        const mcapServerPath = (cameraEntry || savedPaths[0])?.path || null;
+        await handleFiles(files, mcapServerPath);
       } else {
         showDropZone();
         alert('Failed to download mcap files.');
@@ -416,7 +483,7 @@ function showDropZone() {
       if (progressFill) { progressFill.style.width = '100%'; }
       if (progressText) { progressText.textContent = 'parsing...'; }
       const file = new File([blob], filename, { type: 'application/octet-stream' });
-      await handleFiles([file]);
+      await handleFiles([file], mcapPath);
     } catch (err) {
       console.error('Load error:', err);
       appendLog(`\nERROR: ${err.message}`);
@@ -436,6 +503,112 @@ function showDropZone() {
       else { showDropZone(); alert('Sample files not found.'); }
     } catch { showDropZone(); }
   });
+
+  document.getElementById('dz-recents-refresh').addEventListener('click', refreshRecents);
+  refreshRecents();
+}
+
+async function refreshRecents() {
+  const listEl = document.getElementById('dz-recents-list');
+  if (!listEl) { return; }
+  listEl.innerHTML = '<div class="dz-recents-empty">loading...</div>';
+  try {
+    const r = await fetch('http://localhost:8765/list-mcaps');
+    if (!r.ok) {
+      listEl.innerHTML = '<div class="dz-recents-empty">cannot reach server</div>';
+      return;
+    }
+    const j = await r.json();
+    renderRecents(listEl, j.entries || []);
+  } catch (err) {
+    listEl.innerHTML = `<div class="dz-recents-empty">load error: ${err.message}</div>`;
+  }
+}
+
+function renderRecents(listEl, entries) {
+  if (!entries.length) {
+    listEl.innerHTML = '<div class="dz-recents-empty">no cached mcaps yet — try Load URL or Server path</div>';
+    return;
+  }
+  listEl.innerHTML = entries.map((e, i) => {
+    const totalSize = e.parts.reduce((s, p) => s + p.size, 0);
+    const variantChips = e.parts.map(p =>
+      `<span class="dz-recent-chip" title="${p.basename} - ${formatBytes(p.size)}">${p.variant}</span>`,
+    ).join(' ');
+    const sidecarBadge = e.hasSidecar
+      ? `<span class="dz-recent-yolo" title="${e.sidecarSummary?.frames || 0} frames">YOLO ${e.sidecarSummary?.model || ''} · ${e.sidecarSummary?.totalDetections || 0} dets</span>`
+      : '';
+    const date = new Date(e.maxMtime);
+    const ago = formatTimeAgo(date);
+    return `
+      <div class="dz-recent" data-idx="${i}">
+        <div class="dz-recent-line1">
+          <span class="dz-recent-stem">${escapeHtml(e.stem)}</span>
+          <span class="dz-recent-meta">${formatBytes(totalSize)} · ${ago}</span>
+        </div>
+        <div class="dz-recent-line2">
+          ${variantChips}
+          ${sidecarBadge}
+        </div>
+      </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.dz-recent').forEach(el => {
+    const idx = parseInt(el.dataset.idx, 10);
+    el.addEventListener('click', () => loadCachedEntry(entries[idx]));
+  });
+}
+
+async function loadCachedEntry(entry) {
+  showLoading(`Loading ${entry.stem} (${entry.parts.length} part(s))...`);
+  try {
+    const files = [];
+    let cameraPath = null;
+    for (let i = 0; i < entry.parts.length; i++) {
+      const part = entry.parts[i];
+      updateLoadingProgress(20 + 60 * i / entry.parts.length,
+        `Fetching ${part.basename}...`);
+      const fileResp = await fetch(
+        `http://localhost:8765/file?path=${encodeURIComponent(part.path)}`,
+      );
+      if (!fileResp.ok) {
+        throw new Error(`Failed to fetch ${part.basename}: HTTP ${fileResp.status}`);
+      }
+      const blob = await fileResp.blob();
+      files.push(new File([blob], part.basename, { type: 'application/octet-stream' }));
+      if (part.variant === 'camera' || part.variant === 'single') {
+        cameraPath = part.path;
+      }
+    }
+    if (!cameraPath && entry.parts.length > 0) {
+      cameraPath = entry.parts[0].path;
+    }
+    await handleFiles(files, cameraPath);
+  } catch (err) {
+    console.error('Load cached entry failed:', err);
+    app.innerHTML = `<div class="loading"><p style="color:#ef4444">Error: ${err.message}</p><button class="dz-btn" onclick="location.reload()">Retry</button></div>`;
+  }
+}
+
+function formatBytes(n) {
+  if (n < 1024) { return `${n} B`; }
+  if (n < 1024 * 1024) { return `${(n / 1024).toFixed(1)} KB`; }
+  if (n < 1024 * 1024 * 1024) { return `${(n / 1024 / 1024).toFixed(1)} MB`; }
+  return `${(n / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function formatTimeAgo(date) {
+  const sec = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (sec < 60) { return 'just now'; }
+  if (sec < 3600) { return `${Math.floor(sec / 60)}m ago`; }
+  if (sec < 86400) { return `${Math.floor(sec / 3600)}h ago`; }
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch]));
 }
 
 function showLoading(msg) {
@@ -453,8 +626,20 @@ function updateLoadingProgress(pct, text) {
   if (msg && text) { msg.textContent = text; }
 }
 
-async function handleFiles(files) {
+async function handleFiles(files, mcapServerPath) {
   showLoading(`Preparing ${files.length} file(s)...`);
+  sharedMcapPath = mcapServerPath || null;
+
+  // If the caller didn't know an absolute server path (e.g. Select Files /
+  // drag&drop), try to find a matching file on the server by basename. This
+  // lets local-loaded mcaps reuse server-side artifacts like .yolo.json.
+  if (!sharedMcapPath && files.length > 0) {
+    const cameraGuess = files.find(f => /camera\.mcap$/i.test(f.name)) || files[0];
+    sharedMcapPath = await tryFindMcapPath(cameraGuess.name);
+    if (sharedMcapPath) {
+      console.log(`Resolved server-side mcap path: ${sharedMcapPath}`);
+    }
+  }
   try {
     updateLoadingProgress(10, 'Opening mcap files...');
     sharedSummary = await loadMcapFiles(files);
@@ -468,6 +653,16 @@ async function handleFiles(files) {
 
     updateLoadingProgress(55, 'Initializing camera decoder...');
     await initCameraDecoders(sharedSummary.readers);
+
+    updateLoadingProgress(60, 'Checking for YOLO sidecar...');
+    sharedYoloIndex = null;
+    if (mcapServerPath) {
+      try {
+        sharedYoloIndex = await loadYoloSidecar(mcapServerPath);
+      } catch (err) {
+        console.warn('YOLO sidecar load failed (non-fatal):', err);
+      }
+    }
 
     updateLoadingProgress(70, 'Topology ready, building message index...');
     showTopologyView();
@@ -690,7 +885,15 @@ function setupCameraPanel() {
     return;
   }
 
-  currentCameraPanel = createCameraPanel(cameraArea, { cameraIndex });
+  currentCameraPanel = createCameraPanel(cameraArea, {
+    cameraIndex,
+    yoloIndex: sharedYoloIndex,
+    startTimeNs: sharedStartNs,
+    mcapPath: sharedMcapPath,
+    onYoloIndexChange: (idx) => {
+      sharedYoloIndex = idx;
+    },
+  });
 }
 
 function showAvifWarning() {
@@ -1070,6 +1273,8 @@ function cleanupAll() {
   msgBucketIndex = null; msgTopicOffsets = null; msgTopicFirstSec = null; msgDataCache = null;
   foxgloveChannels = null; foxgloveDataCache = null; foxgloveCursors = {};
   cameraIndex = null;
+  sharedYoloIndex = null;
+  sharedMcapPath = null;
   show3D = false;
   showCamera = false;
 }

@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws';
 import { spawn } from 'child_process';
 import { createServer } from 'http';
 import { dirname, join, resolve as pathResolve, isAbsolute, basename } from 'path';
-import { existsSync, statSync, readFileSync, createReadStream, mkdirSync, appendFileSync, unlinkSync } from 'fs';
+import { existsSync, statSync, readFileSync, readdirSync, createReadStream, mkdirSync, appendFileSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
 
@@ -34,11 +34,40 @@ const ENV = {
   CYBER_PATH: '/home/caros/cyberrt',
 };
 
+/**
+ * Canonical directory where ad-topology stores all mcap-related artifacts:
+ * - URL-Load cached mcaps (.mcap)
+ * - record2mcap conversion outputs (.mcap, .mcap.report.json)
+ * - YOLO sidecars (.yolo.json) - same basename as the mcap, ".yolo.json" suffix
+ *
+ * Centralizing the location makes ``/find-mcap`` reliably resolve a basename
+ * to a path, simplifies cleanup, and keeps tooling outputs together.
+ */
+const MCAP_DIR = '/home/caros/workspace/mcap_file';
+try {
+  mkdirSync(MCAP_DIR, { recursive: true });
+} catch (err) {
+  console.warn(`[startup] cannot ensure ${MCAP_DIR}:`, err.message);
+}
+
+/** Strip path separators / parent refs / nul bytes; return basename only. */
+function sanitizeBasename(name) {
+  if (typeof name !== 'string' || name.length === 0) { return null; }
+  // Take only the last path component.
+  const base = name.replace(/\\/g, '/').split('/').pop();
+  if (!base || base === '.' || base === '..') { return null; }
+  // Allow alphanumerics, dot, underscore, hyphen.
+  if (!/^[A-Za-z0-9._-]+$/.test(base)) { return null; }
+  if (base.length > 200) { return null; }
+  return base;
+}
+
 const httpServer = createServer(async (req, res) => {
   // CORS headers for frontend
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Expose-Headers', 'X-Saved-Path');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -79,12 +108,39 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/yolo-detect' && req.method === 'POST') {
+    await handleYoloDetect(req, res);
+    return;
+  }
+
   if ((req.url === '/file' || req.url?.startsWith('/file?')) && req.method === 'GET') {
     handleFileDownload(req, res);
     return;
   }
 
-  // Proxy endpoint: GET /proxy?url=<encoded_mcap_url>
+  // /find-mcap?name=<basename> -- locate an mcap by basename across known
+  // mcap cache directories. Returns { found, path }.
+  // Used by the URL Load / Select Files paths to recover the server-side
+  // absolute path for tools that need it (YOLO sidecar fetch, etc.).
+  if (req.url?.startsWith('/find-mcap?') && req.method === 'GET') {
+    handleFindMcap(req, res);
+    return;
+  }
+
+  // /list-mcaps -- enumerate cached mcaps in MCAP_DIR, group lite/camera
+  // pairs by stem, attach YOLO sidecar summary if present. Returns
+  // { entries: [{ stem, parts: [{variant, path, size, mtime}], hasSidecar, sidecarSummary }] }.
+  if (req.url === '/list-mcaps' && req.method === 'GET') {
+    handleListMcaps(req, res);
+    return;
+  }
+
+  // Proxy endpoint: GET /proxy?url=<encoded_url>[&save=<basename>]
+  // When ``save`` is provided, the streamed content is also written to
+  // ``/tmp/ad-topology-cache/<sanitized_basename>``, and the absolute path
+  // is reported back to the browser via the ``X-Saved-Path`` response header
+  // (exposed via CORS). This lets URL-loaded mcaps reuse the path for
+  // server-side tools (YOLO, record2mcap, etc.) without a second upload.
   if (req.url?.startsWith('/proxy?')) {
     const params = new URL(req.url, `http://localhost:${PORT}`).searchParams;
     const targetUrl = params.get('url');
@@ -94,10 +150,45 @@ const httpServer = createServer(async (req, res) => {
       return;
     }
 
-    console.log(`[Proxy] Downloading: ${targetUrl.slice(0, 100)}...`);
+    let savePath = null;
+    let saveStream = null;
+    const saveRaw = params.get('save');
+    if (saveRaw) {
+      const safe = sanitizeBasename(saveRaw);
+      if (!safe) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid save basename' }));
+        return;
+      }
+      try {
+        const { createWriteStream } = await import('fs');
+        // Always cache into the canonical MCAP_DIR so /find-mcap can resolve
+        // it later by basename.
+        mkdirSync(MCAP_DIR, { recursive: true });
+        savePath = `${MCAP_DIR}/${safe}`;
+        saveStream = createWriteStream(savePath);
+        res.setHeader('X-Saved-Path', savePath);
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Cannot prepare save target: ${err.message}` }));
+        return;
+      }
+    }
+
+    console.log(
+      `[Proxy] Downloading: ${targetUrl.slice(0, 100)}...`
+      + (savePath ? ` (-> ${savePath})` : ''),
+    );
     try {
       const response = await fetch(targetUrl);
       if (!response.ok) {
+        if (saveStream) {
+          saveStream.destroy();
+          try {
+            const { unlinkSync } = await import('fs');
+            unlinkSync(savePath);
+          } catch {}
+        }
         res.writeHead(response.status, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `Remote returned ${response.status}` }));
         return;
@@ -106,22 +197,40 @@ const httpServer = createServer(async (req, res) => {
       const contentType = response.headers.get('content-type') || 'application/octet-stream';
       const contentLength = response.headers.get('content-length');
       const headers = { 'Content-Type': contentType };
-      if (contentLength) headers['Content-Length'] = contentLength;
+      if (contentLength) { headers['Content-Length'] = contentLength; }
       res.writeHead(200, headers);
 
-      // Stream the response body
+      // Stream the response body to both the HTTP response and (optionally)
+      // the temp file.
       const reader = response.body.getReader();
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) { break; }
         res.write(value);
+        if (saveStream) { saveStream.write(value); }
       }
       res.end();
+      if (saveStream) {
+        await new Promise((r) => saveStream.end(r));
+      }
       console.log(`[Proxy] Done: ${targetUrl.split('/').pop()?.split('?')[0]}`);
     } catch (err) {
-      console.error(`[Proxy] Error:`, err.message);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      console.error('[Proxy] Error:', err.message);
+      if (saveStream) {
+        try { saveStream.destroy(); } catch {}
+        try {
+          const { unlinkSync } = await import('fs');
+          unlinkSync(savePath);
+        } catch {}
+      }
+      // If the response hasn't been started yet, return JSON; otherwise just
+      // close the connection.
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      } else {
+        res.end();
+      }
     }
     return;
   }
@@ -303,6 +412,135 @@ function handleBuild(ws, command) {
 // for the record2mcap round-trip).
 // ---------------------------------------------------------------------------
 
+// Directories searched by /find-mcap, in priority order.
+// MCAP_DIR is the canonical home for new artifacts; the rest are kept for
+// backwards compatibility with files placed there by older versions of the
+// tool or by users.
+const MCAP_SEARCH_DIRS = [
+  MCAP_DIR,
+  '/home/caros/workspace',
+  '/tmp/ad-topology-cache',
+  '/tmp',
+];
+
+/**
+ * Classify a basename into (stem, variant). Stems group lite+camera pairs
+ * created by record splitting; ``single`` is for any other .mcap file.
+ */
+function classifyMcapBasename(name) {
+  if (name.endsWith('.lite.mcap')) {
+    return { stem: name.slice(0, -10), variant: 'lite' };
+  }
+  if (name.endsWith('.camera.mcap')) {
+    return { stem: name.slice(0, -12), variant: 'camera' };
+  }
+  if (name.endsWith('.mcap')) {
+    return { stem: name.slice(0, -5), variant: 'single' };
+  }
+  return null;
+}
+
+function handleListMcaps(_req, res) {
+  try {
+    let names;
+    try {
+      names = readdirSync(MCAP_DIR);
+    } catch {
+      // Directory missing -> return empty list, never error.
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ entries: [], dir: MCAP_DIR }));
+      return;
+    }
+
+    const groups = new Map();
+    for (const name of names) {
+      const info = classifyMcapBasename(name);
+      if (!info) { continue; }
+      const fullPath = `${MCAP_DIR}/${name}`;
+      let st;
+      try { st = statSync(fullPath); } catch { continue; }
+      if (!st.isFile()) { continue; }
+      if (!groups.has(info.stem)) {
+        groups.set(info.stem, { stem: info.stem, parts: [], maxMtime: 0 });
+      }
+      const g = groups.get(info.stem);
+      g.parts.push({
+        variant: info.variant,
+        path: fullPath,
+        basename: name,
+        size: st.size,
+        mtime: Math.floor(st.mtimeMs),
+      });
+      if (st.mtimeMs > g.maxMtime) { g.maxMtime = st.mtimeMs; }
+    }
+
+    // Attach YOLO sidecar summary (if any)
+    for (const g of groups.values()) {
+      const sidecarPath = `${MCAP_DIR}/${g.stem}.yolo.json`;
+      g.hasSidecar = false;
+      g.sidecarSummary = null;
+      g.sidecarPath = null;
+      try {
+        if (existsSync(sidecarPath)) {
+          const sc = JSON.parse(readFileSync(sidecarPath, 'utf8'));
+          const total = (sc.frames || []).reduce(
+            (s, f) => s + (f.detections || []).length, 0,
+          );
+          g.hasSidecar = true;
+          g.sidecarPath = sidecarPath;
+          g.sidecarSummary = {
+            model: sc.model,
+            frames: (sc.frames || []).length,
+            totalDetections: total,
+          };
+        }
+      } catch (err) {
+        console.warn(`[list-mcaps] cannot read sidecar ${sidecarPath}:`, err.message);
+      }
+      // Stable per-variant order: camera, lite, single
+      const order = { camera: 0, lite: 1, single: 2 };
+      g.parts.sort((a, b) => (order[a.variant] ?? 9) - (order[b.variant] ?? 9));
+    }
+
+    const entries = [...groups.values()]
+      .sort((a, b) => b.maxMtime - a.maxMtime);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ entries, dir: MCAP_DIR }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+function handleFindMcap(req, res) {
+  try {
+    const params = new URL(req.url, `http://localhost:${PORT}`).searchParams;
+    const name = params.get('name');
+    const safe = sanitizeBasename(name);
+    if (!safe || !safe.toLowerCase().endsWith('.mcap')) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'name must be a basename ending in .mcap' }));
+      return;
+    }
+    for (const dir of MCAP_SEARCH_DIRS) {
+      const candidate = `${dir}/${safe}`;
+      try {
+        if (existsSync(candidate) && statSync(candidate).isFile()) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ found: true, path: candidate }));
+          return;
+        }
+      } catch {}
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ found: false, searched: MCAP_SEARCH_DIRS }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
 function handleFileDownload(req, res) {
   try {
     const params = new URL(req.url, `http://localhost:${PORT}`).searchParams;
@@ -318,12 +556,14 @@ function handleFileDownload(req, res) {
       return;
     }
     const resolved = pathResolve(requested);
-    const isMcap = resolved.toLowerCase().endsWith('.mcap');
-    const isReport = resolved.toLowerCase().endsWith('.mcap.report.json');
-    if (!isMcap && !isReport) {
+    const lower = resolved.toLowerCase();
+    const isMcap = lower.endsWith('.mcap');
+    const isReport = lower.endsWith('.mcap.report.json');
+    const isYoloSidecar = lower.endsWith('.yolo.json');
+    if (!isMcap && !isReport && !isYoloSidecar) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        error: 'only .mcap and .mcap.report.json files may be served',
+        error: 'only .mcap, .mcap.report.json, .yolo.json files may be served',
       }));
       return;
     }
@@ -333,8 +573,9 @@ function handleFileDownload(req, res) {
       return;
     }
     const stat = statSync(resolved);
-    const contentType = isReport ? 'application/json'
-                                 : 'application/octet-stream';
+    const contentType = (isReport || isYoloSidecar)
+        ? 'application/json'
+        : 'application/octet-stream';
     res.writeHead(200, {
       'Content-Type': contentType,
       'Content-Length': stat.size,
@@ -370,14 +611,15 @@ function findRecord2McapBin() {
 }
 
 function deriveMcapOutputPath(inputPath) {
-  // Accepts `<x>.record`, `<x>.record.NNNNN`, `<x>.record.NNNNN.MMMMM` etc.
-  // Produces `<x>.mcap` in the same directory, dropping every `.record[.NNNNN...]`
-  // trailing segment.
-  const match = inputPath.match(/^(.*?)\.record(?:\.\d+)*$/);
-  if (match) {
-    return `${match[1]}.mcap`;
-  }
-  return `${inputPath}.mcap`;
+  // Strip ``.record[.NNNNN[.MMMMM]]`` trailing segments to get the canonical
+  // mcap basename, then place the output in MCAP_DIR. Examples:
+  //   /data/foo/20260416.record.00000  ->  <MCAP_DIR>/20260416.mcap
+  //   /data/foo/bar.mcap               ->  <MCAP_DIR>/bar.mcap.mcap (rare)
+  //   /any/where/baz.record            ->  <MCAP_DIR>/baz.mcap
+  const baseFile = basename(inputPath);
+  const match = baseFile.match(/^(.*?)\.record(?:\.\d+)*$/);
+  const stem = match ? match[1] : baseFile;
+  return `${MCAP_DIR}/${stem}.mcap`;
 }
 
 function writeJsonLine(res, obj) {
@@ -565,6 +807,190 @@ async function handleRecordToMcap(req, res) {
       outputExists: existsSync(outputPath),
       outputSizeBytes: existsSync(outputPath) ? statSync(outputPath).size : 0,
       report,
+    });
+    res.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// /yolo-detect endpoint -- spawn tools/yolo_detect/detect.py against an mcap.
+// ---------------------------------------------------------------------------
+
+const YOLO_DETECT_SCRIPT = join(__dirname, '..', 'tools', 'yolo_detect', 'detect.py');
+const ALLOWED_YOLO_MODELS = new Set(['yolo11n', 'yolo11s', 'yolo11m', 'yolo11l', 'yolo11x']);
+
+async function handleYoloDetect(req, res) {
+  let body = '';
+  try {
+    for await (const chunk of req) {
+      body += chunk.toString();
+      if (body.length > 64 * 1024) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body too large' }));
+        return;
+      }
+    }
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Failed to read body: ${err.message}` }));
+    return;
+  }
+
+  let payload;
+  try {
+    payload = body ? JSON.parse(body) : {};
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Invalid JSON body: ${err.message}` }));
+    return;
+  }
+
+  const inputPathRaw = payload.mcapPath;
+  if (typeof inputPathRaw !== 'string' || !inputPathRaw) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'mcapPath is required' }));
+    return;
+  }
+  if (!isAbsolute(inputPathRaw)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'mcapPath must be absolute' }));
+    return;
+  }
+  const mcapPath = pathResolve(inputPathRaw);
+  if (!existsSync(mcapPath) || !statSync(mcapPath).isFile()) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `mcap not found: ${mcapPath}` }));
+    return;
+  }
+
+  const model = ALLOWED_YOLO_MODELS.has(payload.model) ? payload.model : 'yolo11n';
+  const device = ['cpu', 'cuda:0', 'auto'].includes(payload.device) ? payload.device : 'auto';
+  const confRaw = Number(payload.conf);
+  const conf = Number.isFinite(confRaw) ? Math.max(0.01, Math.min(0.99, confRaw)) : 0.25;
+  const skipFisheye = payload.skipFisheye === true;
+  const maxFramesRaw = Number(payload.maxFramesPerCam);
+  const maxFrames = Number.isInteger(maxFramesRaw) && maxFramesRaw > 0 ? maxFramesRaw : 0;
+
+  if (!existsSync(YOLO_DETECT_SCRIPT)) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'detect.py missing',
+      expectedAt: YOLO_DETECT_SCRIPT,
+    }));
+    return;
+  }
+
+  // Output sidecar path is fixed: <mcap-without-.mcap>.yolo.json
+  const outputPath = mcapPath.toLowerCase().endsWith('.mcap')
+    ? mcapPath.slice(0, -5) + '.yolo.json'
+    : mcapPath + '.yolo.json';
+
+  const args = [
+    YOLO_DETECT_SCRIPT,
+    '--mcap', mcapPath,
+    '--model', model,
+    '--device', device,
+    '--conf', String(conf),
+    '--output', outputPath,
+  ];
+  if (skipFisheye) { args.push('--skip-fisheye'); }
+  if (maxFrames > 0) { args.push('--max-frames-per-cam', String(maxFrames)); }
+
+  const pythonBin = process.env.YOLO_PYTHON || 'python3';
+
+  console.log('[yolo-detect] spawn:', pythonBin, args.join(' '));
+
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    'X-Accel-Buffering': 'no',
+  });
+  writeJsonLine(res, {
+    type: 'start',
+    mcapPath, outputPath, model, device, conf,
+    skipFisheye, maxFramesPerCam: maxFrames,
+    pythonBin,
+  });
+
+  let child;
+  try {
+    child = spawn(pythonBin, args, {
+      env: { ...ENV, PYTHONUNBUFFERED: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    writeJsonLine(res, { type: 'done', ok: false, error: err.message });
+    res.end();
+    return;
+  }
+
+  let killed = false;
+  const onClientClose = () => {
+    killed = true;
+    if (child && !child.killed) {
+      child.kill('SIGTERM');
+    }
+  };
+  req.on('close', onClientClose);
+
+  const streamLines = (stream, label) => {
+    let buf = '';
+    stream.on('data', (chunk) => {
+      buf += chunk.toString();
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (line.length > 0) {
+          writeJsonLine(res, { type: 'log', stream: label, line });
+        }
+      }
+    });
+    stream.on('end', () => {
+      if (buf.length > 0) {
+        writeJsonLine(res, { type: 'log', stream: label, line: buf });
+      }
+    });
+  };
+  streamLines(child.stdout, 'stdout');
+  streamLines(child.stderr, 'stderr');
+
+  child.on('error', (err) => {
+    writeJsonLine(res, { type: 'done', ok: false, error: err.message });
+    res.end();
+  });
+
+  child.on('close', (code, signal) => {
+    req.removeListener('close', onClientClose);
+    const outputExists = existsSync(outputPath);
+    let summary = null;
+    if (outputExists) {
+      try {
+        const sc = JSON.parse(readFileSync(outputPath, 'utf8'));
+        const totalDets = (sc.frames || []).reduce((s, f) => s + (f.detections || []).length, 0);
+        summary = {
+          model: sc.model, version: sc.version,
+          frames: (sc.frames || []).length,
+          totalDetections: totalDets,
+          generatedAt: sc.generated_at,
+        };
+      } catch (err) {
+        writeJsonLine(res, {
+          type: 'log', stream: 'stderr',
+          line: `failed to read sidecar: ${err.message}`,
+        });
+      }
+    }
+    writeJsonLine(res, {
+      type: 'done',
+      ok: code === 0 && !killed && outputExists,
+      killed,
+      exitCode: code,
+      signal,
+      mcapPath,
+      outputPath,
+      outputExists,
+      outputSizeBytes: outputExists ? statSync(outputPath).size : 0,
+      summary,
     });
     res.end();
   });

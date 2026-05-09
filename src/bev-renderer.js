@@ -12,6 +12,7 @@
  */
 
 import { LineMainType, LineColor, LineStyle, ObjectType, OccupancyStatus } from './bev-decoder.js';
+import { findFrameAt, projectDetectionToBev, getClassColor } from './yolo-overlay.js';
 
 const LINE_COLORS = {
   byMainType: {
@@ -60,6 +61,7 @@ export function createBevViewState() {
     showObjects: true,
     showOccupancy: true,
     showMap: true,
+    showYolo: true,
   };
 }
 
@@ -272,7 +274,81 @@ function drawAxisLabels(ctx, canvasW, canvasH, view) {
 }
 
 /**
+ * Draw YOLO detections back-projected to ground plane (BEV view).
+ *
+ * For each detection we compute the bottom-center pixel and back-project to
+ * the BEV ground plane (z=0) using camera intrinsics + extrinsics. Each
+ * detection is drawn as a small filled circle + class label.
+ */
+function drawYoloDetections(ctx, canvasW, canvasH, view, yoloIndex, currentSec,
+                            startTimeNs, cameras) {
+  if (!yoloIndex || !cameras) { return; }
+
+  ctx.save();
+  applyBevTransform(ctx, canvasW, canvasH, view);
+
+  const radiusM = 0.3;
+  const px = view.pxPerMeter;
+
+  // Pre-compute label rendering transforms outside the BEV transform matrix
+  const placedLabels = [];
+
+  for (const cam of cameras) {
+    if (!cam.calibration || !cam.transform) {
+      // Skip cameras without calibration (fisheye in record-converted mcaps
+      // may lack this).
+      continue;
+    }
+    const frame = findFrameAt(yoloIndex, cam.videoTopic, currentSec, startTimeNs);
+    if (!frame || !frame.detections) { continue; }
+
+    for (const det of frame.detections) {
+      // Skip class types that don't make sense on the ground plane.
+      if (det.class_id === 9) { continue; }  // traffic light: hangs above ground
+      if (det.class_id === 11) { continue; } // stop sign: usually elevated
+
+      const projected = projectDetectionToBev(det, cam);
+      if (!projected) { continue; }
+
+      const color = getClassColor(det.class_id);
+      ctx.beginPath();
+      ctx.arc(projected.x, projected.y, radiusM, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = Math.min(1.0, 0.4 + det.confidence * 0.6);
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+      ctx.lineWidth = 1.5 / px;
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+
+      placedLabels.push({
+        x: projected.x,
+        y: projected.y,
+        label: det.class_name,
+        color,
+      });
+    }
+  }
+
+  ctx.restore();
+
+  // Draw labels in screen space so font size is constant.
+  ctx.save();
+  ctx.font = '11px Inter, sans-serif';
+  ctx.textBaseline = 'middle';
+  for (const l of placedLabels) {
+    const sx = canvasW / 2 + view.panX + l.x * view.pxPerMeter;
+    const sy = canvasH / 2 + view.panY - l.y * view.pxPerMeter;
+    ctx.fillStyle = l.color;
+    ctx.fillText(l.label, sx + 6, sy);
+  }
+  ctx.restore();
+}
+
+/**
  * Full redraw of the BEV canvas.
+ *
+ * data: { bevMap, occResult, occCells, yoloIndex?, currentSec?, startTimeNs?, cameras? }
  */
 export function renderBev(ctx, canvasSize, view, data) {
   const { width, height } = canvasSize;
@@ -290,6 +366,10 @@ export function renderBev(ctx, canvasSize, view, data) {
   }
   if (view.showObjects && data.bevMap) {
     drawObjects(ctx, width, height, view, data.bevMap);
+  }
+  if (view.showYolo && data.yoloIndex && data.cameras) {
+    drawYoloDetections(ctx, width, height, view, data.yoloIndex,
+                       data.currentSec || 0, data.startTimeNs || 0, data.cameras);
   }
   drawEgo(ctx, width, height, view);
   drawAxisLabels(ctx, width, height, view);
