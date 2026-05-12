@@ -246,53 +246,47 @@ export function createCameraPanel(container, opts) {
     const bevArea = buildBevArea();
     bevPane.appendChild(bevArea);
 
-    // Distribute cells: regular cameras into spatial grid (zoned),
-    // fisheye cameras into the dedicated 2x2 grid.
+    // Distribute cells: regular cameras into spatial grid (top-down vehicle
+    // layout via grid-template-areas), fisheye into a separate 2x2 grid.
     const regularCams = cameras.filter(c => !isFisheyeCamera(c));
     const fisheyeCams = cameras.filter(c => isFisheyeCamera(c));
 
-    const zones = { front: [], left: [], right: [], rear: [], other: [] };
+    // Map regular cameras to their canonical grid-area name. The vehicle
+    // layout (Option D) uses 5 cols x 4 rows with these areas:
+    //   row 1 (front):           c2  c1  c11  c10  c9
+    //   rows 2-3 (car silhouette body, with side cams spanning):
+    //                            c2  car car  car  c9
+    //                            c4  car car  car  c7
+    //   row 4 (rear):            c4  c6  c6   c6   c7
+    // Camera ID -> grid-area name mapping.
+    function gridAreaForCam(cam) {
+      const name = cam.name || '';
+      const m = name.match(/_(\d+)$/);
+      if (!m) { return null; }
+      return `c${m[1]}`;
+    }
+
+    // Place regular cameras directly inside spatialGrid (no zone wrappers).
+    // Each cell carries its grid-area via inline style; CSS does the layout.
     for (const cam of regularCams) {
-      const pos = getCameraZone(cam.name);
-      zones[pos.zone].push({ cam, order: pos.order });
-    }
-    for (const z of Object.values(zones)) {
-      z.sort((a, b) => a.order - b.order);
-    }
-
-    function appendCellToZone(zone, cam) {
       const cell = createCell(cam);
-      zone.appendChild(cell);
-      cellParents[cam.videoTopic] = zone;
+      const area = gridAreaForCam(cam);
+      if (area) {
+        cell.style.gridArea = area;
+        cell.dataset.camId = area.slice(1);
+      }
+      spatialGrid.appendChild(cell);
+      cellParents[cam.videoTopic] = spatialGrid;
     }
 
-    const frontRow = document.createElement('div');
-    frontRow.className = 'cam-zone cam-zone-front';
-    for (const { cam } of zones.front) { appendCellToZone(frontRow, cam); }
-
-    const leftCol = document.createElement('div');
-    leftCol.className = 'cam-zone cam-zone-left';
-    for (const { cam } of zones.left) { appendCellToZone(leftCol, cam); }
-
-    const rightCol = document.createElement('div');
-    rightCol.className = 'cam-zone cam-zone-right';
-    for (const { cam } of zones.right) { appendCellToZone(rightCol, cam); }
-
-    const rearRow = document.createElement('div');
-    rearRow.className = 'cam-zone cam-zone-rear';
-    for (const { cam } of zones.rear) { appendCellToZone(rearRow, cam); }
-
+    // Car silhouette in the centre (grid-area "car"). Uses the existing
+    // SVG helper (kept around; just wasn't being used after the previous
+    // BEV-on-the-right layout).
     const carCenter = document.createElement('div');
     carCenter.className = 'cam-zone-car';
-
-    spatialGrid.appendChild(frontRow);
-    spatialGrid.appendChild(leftCol);
+    carCenter.innerHTML = makeVehicleSvg();
     spatialGrid.appendChild(carCenter);
-    spatialGrid.appendChild(rightCol);
-    spatialGrid.appendChild(rearRow);
-    for (const { cam } of zones.other) {
-      appendCellToZone(rearRow, cam);
-    }
+
     camerasPane.appendChild(spatialGrid);
 
     // Sort fisheye cams by canonical id order (0, 3, 5, 8) so the 2x2 grid
@@ -322,9 +316,15 @@ export function createCameraPanel(container, opts) {
         const isActive = p.classList.contains(`cam-tab-${name}`);
         p.classList.toggle('active', isActive);
       });
-      // Force BEV redraw when switching to its tab so the canvas sizes to the
-      // newly visible area.
-      if (name === 'bev') { requestBevRedraw(); }
+      // After the display flip, force the relevant redraws on the next
+      // animation frame so paused state shows correct content (no update
+      // tick will fire on its own when the player is paused).
+      requestAnimationFrame(() => {
+        if (name === 'bev') { requestBevRedraw(); }
+        if (yoloIndex && (name === 'cameras' || name === 'fisheye')) {
+          drawYoloOverlays(bevDataCache.currentSec || 0);
+        }
+      });
     }
     tabBar.querySelectorAll('.cam-tab').forEach(btn => {
       btn.addEventListener('click', () => activateTab(btn.dataset.tab));
@@ -506,6 +506,23 @@ export function createCameraPanel(container, opts) {
       <div class="yolo-panel-header">
         <span class="yolo-panel-title">YOLOv11</span>
         <span class="yolo-panel-status" id="yolo-status">${yoloIndex ? 'Loaded' : 'No data'}</span>
+        <span class="yolo-viewer">
+          <select id="yolo-viewer-model" class="yolo-control" title="Pick which model to inspect">
+            <option value="yolo11n">yolo11n</option>
+            <option value="yolo11s">yolo11s</option>
+            <option value="yolo11m">yolo11m</option>
+            <option value="yolo11l">yolo11l</option>
+            <option value="yolo11x">yolo11x</option>
+          </select>
+          <button id="yolo-view-model" class="yolo-viewer-btn"
+                  title="Open the selected model architecture in Netron">
+            View Model
+          </button>
+          <button id="yolo-analyze-model" class="yolo-viewer-btn"
+                  title="Analyze ONNX inputs, outputs, operators, and health">
+            Analyze
+          </button>
+        </span>
       </div>
       <div class="yolo-panel-controls">
         <select id="yolo-model" class="yolo-control" title="Model size">
@@ -532,6 +549,23 @@ export function createCameraPanel(container, opts) {
           show overlay
         </label>
       </div>
+      <details class="yolo-analysis" id="yolo-analysis" style="display:none">
+        <summary>
+          <span>Model Analysis</span>
+          <span class="yolo-analysis-status" id="yolo-analysis-status">idle</span>
+        </summary>
+        <div class="yolo-analysis-toolbar">
+          <label class="yolo-checkbox">
+            <input id="yolo-compare-all" type="checkbox" />
+            compare available yolo11*
+          </label>
+          <button id="yolo-analysis-open-netron" class="yolo-analysis-action" disabled>Open Netron</button>
+          <button id="yolo-analysis-copy" class="yolo-analysis-action" disabled>Copy JSON</button>
+        </div>
+        <div class="yolo-analysis-body" id="yolo-analysis-body">
+          Click Analyze to inspect the selected model.
+        </div>
+      </details>
       <div class="yolo-panel-progress" id="yolo-progress" style="display:none">
         <div class="yolo-progress-bar"><div class="yolo-progress-fill" id="yolo-progress-fill"></div></div>
         <div class="yolo-progress-text" id="yolo-progress-text">starting...</div>
@@ -560,12 +594,110 @@ export function createCameraPanel(container, opts) {
     const deviceSel = panel.querySelector('#yolo-device');
     const confInput = panel.querySelector('#yolo-conf');
     const skipFishCb = panel.querySelector('#yolo-skip-fisheye');
+    const viewerSelect = panel.querySelector('#yolo-viewer-model');
+    const viewerBtn = panel.querySelector('#yolo-view-model');
+    const analyzeBtn = panel.querySelector('#yolo-analyze-model');
+    const analysisBox = panel.querySelector('#yolo-analysis');
+    const analysisStatus = panel.querySelector('#yolo-analysis-status');
+    const analysisBody = panel.querySelector('#yolo-analysis-body');
+    const compareAllCb = panel.querySelector('#yolo-compare-all');
+    const analysisOpenNetronBtn = panel.querySelector('#yolo-analysis-open-netron');
+    const analysisCopyBtn = panel.querySelector('#yolo-analysis-copy');
 
     let abortController = null;
+    let lastAnalysis = null;
 
     showCb.addEventListener('change', () => {
       bevView.showYolo = showCb.checked;
       requestBevRedraw();
+    });
+
+    // Pre-select the viewer model to whatever YOLO has been run with most
+    // recently, so "View Model" matches what's currently displayed.
+    if (viewerSelect && yoloIndex?.model) {
+      viewerSelect.value = yoloIndex.model;
+    }
+
+    viewerBtn?.addEventListener('click', async () => {
+      const model = viewerSelect.value;
+      const origLabel = viewerBtn.textContent;
+      viewerBtn.disabled = true;
+      viewerBtn.textContent = 'Launching...';
+      try {
+        const r = await fetch('http://localhost:8765/netron-launch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(j.error || `HTTP ${r.status}`);
+        }
+        // Same-origin URL: Vite dev server proxies /netron/... to express
+        // on :8765 (see vite.config.js), so this works regardless of how
+        // the page is served (localhost, devtunnel, SSH forward, ...).
+        const url = `${window.location.origin}${j.proxyPath}`;
+        window.open(url, '_blank', 'noopener');
+      } catch (err) {
+        console.error('View Model failed:', err);
+        alert(`View Model failed: ${err.message}`);
+      } finally {
+        viewerBtn.disabled = false;
+        viewerBtn.textContent = origLabel;
+      }
+    });
+
+    analyzeBtn?.addEventListener('click', async () => {
+      const model = viewerSelect.value;
+      const origLabel = analyzeBtn.textContent;
+      analysisBox.style.display = 'block';
+      analysisBox.open = true;
+      analysisStatus.textContent = 'loading...';
+      analysisBody.innerHTML = '<div class="yolo-analysis-loading">Analyzing model...</div>';
+      analysisOpenNetronBtn.disabled = true;
+      analysisCopyBtn.disabled = true;
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = 'Analyzing...';
+      try {
+        const analysis = await runModelAnalyze({
+          model,
+          compareAll: compareAllCb?.checked === true,
+        });
+        lastAnalysis = analysis;
+        analysisStatus.textContent = 'ready';
+        analysisBody.innerHTML = renderModelAnalysis(analysis);
+        analysisOpenNetronBtn.disabled = false;
+        analysisCopyBtn.disabled = false;
+      } catch (err) {
+        lastAnalysis = null;
+        analysisStatus.textContent = 'error';
+        analysisBody.innerHTML = `<div class="yolo-analysis-error">${esc(err.message)}</div>`;
+        console.error('Model analysis failed:', err);
+      } finally {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = origLabel;
+      }
+    });
+
+    analysisOpenNetronBtn?.addEventListener('click', () => {
+      const path = lastAnalysis?.netronUrl || `/netron/${viewerSelect.value}/`;
+      window.open(`${window.location.origin}${path}`, '_blank', 'noopener');
+    });
+
+    analysisCopyBtn?.addEventListener('click', async () => {
+      if (!lastAnalysis) { return; }
+      try {
+        await navigator.clipboard.writeText(JSON.stringify(lastAnalysis, null, 2));
+        analysisStatus.textContent = 'copied';
+        setTimeout(() => {
+          if (analysisStatus.textContent === 'copied') {
+            analysisStatus.textContent = 'ready';
+          }
+        }, 1200);
+      } catch (err) {
+        analysisStatus.textContent = 'copy failed';
+        console.error('Copy analysis JSON failed:', err);
+      }
     });
 
     cancelBtn.addEventListener('click', () => {
@@ -663,6 +795,143 @@ export function createCameraPanel(container, opts) {
     } else {
       renderYoloLegend(legendEl);
     }
+  }
+
+  async function runModelAnalyze({ model, compareAll }) {
+    const r = await fetch('http://localhost:8765/model-analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, compareAll }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    return j;
+  }
+
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) { return '--'; }
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let v = bytes;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
+  function formatShape(shape) {
+    if (!Array.isArray(shape)) { return '?'; }
+    return `[${shape.map(v => v == null ? '?' : v).join(', ')}]`;
+  }
+
+  function renderHealthChip(label, item) {
+    const ok = item?.ok === true;
+    const cls = ok ? 'ok' : 'bad';
+    const title = item?.error ? ` title="${esc(item.error)}"` : '';
+    return `<span class="yolo-health-chip ${cls}"${title}>${esc(label)}: ${ok ? 'ok' : 'fail'}</span>`;
+  }
+
+  function renderTensorList(title, values) {
+    const rows = (values || []).map(v => `
+      <div class="yolo-analysis-tensor">
+        <span class="yolo-analysis-tensor-name" title="${esc(v.name)}">${esc(v.name)}</span>
+        <span>${esc(v.dtype || '?')}</span>
+        <span>${esc(formatShape(v.shape))}</span>
+      </div>
+    `).join('');
+    return `
+      <div class="yolo-analysis-section">
+        <div class="yolo-analysis-section-title">${esc(title)}</div>
+        <div class="yolo-analysis-tensors">
+          ${rows || '<div class="yolo-analysis-muted">none</div>'}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderOperatorStats(analysis) {
+    const top = analysis.operators?.top || [];
+    const max = Math.max(1, ...top.map(o => o.count));
+    const rows = top.slice(0, 12).map(o => {
+      const width = o.count / max * 100;
+      return `
+        <div class="yolo-op-row">
+          <span class="yolo-op-name">${esc(o.op)}</span>
+          <span class="yolo-op-bar"><span style="width:${width.toFixed(0)}%"></span></span>
+          <span class="yolo-op-count">${o.count}</span>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="yolo-analysis-section">
+        <div class="yolo-analysis-section-title">Top Operators</div>
+        <div class="yolo-analysis-muted">${analysis.operators?.unique || 0} unique / ${analysis.operators?.total || 0} total nodes</div>
+        <div class="yolo-op-list">${rows || '<div class="yolo-analysis-muted">none</div>'}</div>
+      </div>
+    `;
+  }
+
+  function renderComparisonCards(comparisons) {
+    if (!Array.isArray(comparisons) || comparisons.length <= 1) { return ''; }
+    const cards = comparisons.map(item => `
+      <div class="yolo-compare-card">
+        <b>${esc(item.model)}</b>
+        <span>PT ${formatBytes(item.files?.pt?.bytes)}</span>
+        <span>ONNX ${formatBytes(item.files?.onnx?.bytes)}</span>
+        <span>${item.graph?.nodes ?? '?'} nodes</span>
+        <span>${item.operators?.unique ?? '?'} ops</span>
+      </div>
+    `).join('');
+    return `
+      <div class="yolo-analysis-section yolo-analysis-wide">
+        <div class="yolo-analysis-section-title">Available Model Comparison</div>
+        <div class="yolo-compare-grid">${cards}</div>
+      </div>
+    `;
+  }
+
+  function renderModelAnalysis(analysis) {
+    const opset = (analysis.onnx?.opsets || [])
+      .map(o => `${o.domain}:${o.version}`)
+      .join(', ') || '--';
+    const ultra = analysis.ultralytics?.ok
+      ? `${(analysis.ultralytics.params / 1e6).toFixed(1)}M params, ${analysis.ultralytics.modules} modules`
+      : `unavailable${analysis.ultralytics?.error ? `: ${analysis.ultralytics.error}` : ''}`;
+
+    const cards = [
+      ['Model', analysis.model],
+      ['PT size', formatBytes(analysis.files?.pt?.bytes)],
+      ['ONNX size', formatBytes(analysis.files?.onnx?.bytes)],
+      ['Opset', opset],
+      ['Graph nodes', analysis.graph?.nodes ?? '--'],
+      ['Ultralytics', ultra],
+    ].map(([k, v]) => `
+      <div class="yolo-analysis-card">
+        <span>${esc(k)}</span>
+        <b title="${esc(String(v))}">${esc(String(v))}</b>
+      </div>
+    `).join('');
+
+    return `
+      <div class="yolo-analysis-grid">
+        <div class="yolo-analysis-cards yolo-analysis-wide">${cards}</div>
+        <div class="yolo-analysis-section yolo-analysis-wide">
+          <div class="yolo-analysis-section-title">Health</div>
+          <div class="yolo-health-row">
+            ${renderHealthChip('load', analysis.health?.load)}
+            ${renderHealthChip('checker', analysis.health?.checker)}
+            ${renderHealthChip('shape', analysis.health?.shapeInference)}
+          </div>
+        </div>
+        ${renderTensorList('Inputs', analysis.graph?.inputs)}
+        ${renderTensorList('Outputs', analysis.graph?.outputs)}
+        ${renderOperatorStats(analysis)}
+        ${renderComparisonCards(analysis.comparisons)}
+      </div>
+    `;
   }
 
   function renderYoloStats(panel, index) {
@@ -1022,6 +1291,16 @@ export function createCameraPanel(container, opts) {
     // Always pull the latest content from the cell so the floating preview
     // shows THIS camera (not whatever the previous open left behind).
     syncFloatFromCell(cam);
+
+    // When paused (no update() tick coming), force a YOLO overlay redraw so
+    // the bboxes appear immediately on the float. Defer to the next frame so
+    // ``cam-float-yolo`` has its actual layout size from the just-shown
+    // overlay.
+    if (yoloIndex && bevView.showYolo) {
+      requestAnimationFrame(() => {
+        drawYoloOverlays(bevDataCache.currentSec || 0);
+      });
+    }
   }
 
   function closeFloatingPreview() {
@@ -1041,43 +1320,80 @@ export function createCameraPanel(container, opts) {
     const fi = document.getElementById('cam-float-img');
     const fy = document.getElementById('cam-float-yolo');
 
-    // Pixels first: prefer canvas (H264 / WASM AVIF), fall back to img (native AVIF/JPEG/PNG).
-    const canvasReady = cellCanvas
-        && cellCanvas.style.display !== 'none'
-        && cellCanvas.width > 0
-        && cellCanvas.height > 0;
-    const imgReady = cellImg
-        && cellImg.style.display !== 'none'
-        && cellImg.src
-        && cellImg.complete
-        && cellImg.naturalWidth > 0;
+    // Diagnostic: log exactly what's found so we can debug "black float"
+    // reports when a cell looks fine in the grid but copies as blank.
+    console.log('[float-sync]', cam.videoTopic, {
+      cellCanvas: cellCanvas ? {
+        w: cellCanvas.width, h: cellCanvas.height,
+        styleDisplay: cellCanvas.style.display || '(css)',
+        offsetW: cellCanvas.offsetWidth, offsetH: cellCanvas.offsetHeight,
+      } : null,
+      cellImg: cellImg ? {
+        srcLen: (cellImg.src || '').length,
+        complete: cellImg.complete,
+        naturalW: cellImg.naturalWidth,
+        naturalH: cellImg.naturalHeight,
+        styleDisplay: cellImg.style.display || '(css)',
+      } : null,
+      fc: fc ? { w: fc.width, h: fc.height } : null,
+    });
 
-    if (canvasReady && fc) {
-      fc.width = cellCanvas.width;
-      fc.height = cellCanvas.height;
-      fc.getContext('2d').drawImage(cellCanvas, 0, 0);
-      fc.style.display = 'block';
-      if (fi) { fi.style.display = 'none'; fi.removeAttribute('src'); }
-    } else if (imgReady && fi) {
-      fi.src = cellImg.src;
-      fi.style.display = 'block';
-      if (fc) {
-        fc.style.display = 'none';
-        fc.getContext('2d').clearRect(0, 0, fc.width || 1, fc.height || 1);
-      }
-    } else {
-      // Nothing decoded yet for this camera; clear both.
-      if (fc) {
-        fc.style.display = 'none';
-        fc.getContext('2d').clearRect(0, 0, fc.width || 1, fc.height || 1);
-      }
-      if (fi) {
-        fi.style.display = 'none';
-        fi.removeAttribute('src');
+    // Snapshot strategy: draw onto fc (canvas) regardless of whether the
+    // cell uses canvas (H264 / WASM AVIF) or img (native AVIF / JPEG / PNG).
+    // ``drawImage`` accepts both <canvas> and <img> as source; rendering
+    // through one element type avoids the previous bugs where copying
+    // ``cellImg.src`` to ``fi.src`` left the float invisible until the
+    // browser re-decoded the image asynchronously.
+    let source = null;
+    let sw = 0;
+    let sh = 0;
+    // Prefer img path if it has natural pixels (covers native AVIF / JPEG case
+    // where canvas may also exist with leftover dimensions but no pixels).
+    if (cellImg && cellImg.complete && cellImg.naturalWidth > 0) {
+      source = cellImg;
+      sw = cellImg.naturalWidth;
+      sh = cellImg.naturalHeight;
+    } else if (cellCanvas && cellCanvas.width > 0 && cellCanvas.height > 0) {
+      // Default canvas size is 300x150, which would render blank. Only use
+      // it if the dimensions look like a real frame (much larger than
+      // default).
+      const w = cellCanvas.width;
+      const h = cellCanvas.height;
+      if (!(w === 300 && h === 150)) {
+        source = cellCanvas;
+        sw = w;
+        sh = h;
       }
     }
 
-    // Reset YOLO overlay (it'll be redrawn on the next update tick).
+    if (source && fc) {
+      fc.width = sw;
+      fc.height = sh;
+      try {
+        fc.getContext('2d').drawImage(source, 0, 0);
+        fc.style.display = 'block';
+        console.log('[float-sync] drew', sw, 'x', sh, 'from',
+          source.tagName.toLowerCase());
+      } catch (err) {
+        console.warn('[float-sync] drawImage failed:', err);
+        fc.style.display = 'none';
+      }
+    } else if (fc) {
+      console.warn('[float-sync] no source ready, clearing fc');
+      fc.style.display = 'none';
+      fc.getContext('2d').clearRect(0, 0, fc.width || 1, fc.height || 1);
+    }
+
+    // The float img element is only used by the LIVE update path (setImageSrc)
+    // when a new frame arrives while the float is open. Hide it during sync
+    // so the canvas snapshot is what's visible right after open.
+    if (fi) {
+      fi.style.display = 'none';
+      fi.removeAttribute('src');
+    }
+
+    // Reset YOLO overlay (it'll be redrawn on the next update tick or
+    // immediately by drawYoloOverlays caller).
     if (fy) {
       fy.getContext('2d').clearRect(0, 0, fy.width || 1, fy.height || 1);
     }
@@ -1255,6 +1571,19 @@ export function createCameraPanel(container, opts) {
       const overlayEl = document.getElementById(`cam-yolo-${id}`);
       if (!overlayEl) { continue; }
 
+      // Skip cells that are currently hidden (inactive tab pane, etc.).
+      // ``offsetParent === null`` means the element or any ancestor has
+      // ``display: none``. Drawing onto a hidden cell collapses the canvas
+      // to ~1x1 (because getBoundingClientRect returns 0 width/height) and
+      // a single stray fillRect then turns the whole cell solid color when
+      // the tab becomes visible again.
+      if (overlayEl.offsetParent === null) {
+        // Don't touch the canvas size or pixels here -- leaving the last
+        // good frame intact means switching back to the tab shows the
+        // bbox immediately, even when paused.
+        continue;
+      }
+
       const frame = findFrameAt(yoloIndex, cam.videoTopic, currentSec, startTimeNs);
       if (!frame) {
         overlayEl.width = overlayEl.width;  // clear
@@ -1262,6 +1591,9 @@ export function createCameraPanel(container, opts) {
       }
 
       sizeOverlayToCell(overlayEl);
+      // Defensive: if the cell wasn't really visible at sizing time, abort
+      // before drawing rather than corrupt a 1x1 canvas.
+      if (overlayEl.width < 8 || overlayEl.height < 8) { continue; }
       const ctx = overlayEl.getContext('2d');
       ctx.clearRect(0, 0, overlayEl.width, overlayEl.height);
       drawBboxesOnCanvas(ctx, { width: overlayEl.width, height: overlayEl.height }, frame, {

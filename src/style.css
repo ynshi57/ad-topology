@@ -2361,40 +2361,50 @@ html, body {
   border-radius: 1px;
 }
 
+/*
+ * Option D: top-down vehicle layout. 5 columns x 4 rows. Side cameras span
+ * 2 rows (so they're tall + visible), the car silhouette occupies the
+ * inner 3x2 block, and front/rear cameras get full-width cells across the
+ * top and bottom rows.
+ *
+ *   row 1:  c2  c1   c11   c10  c9     (front cameras across the top)
+ *   row 2:  c2  car  car   car  c9     (car silhouette body, side cams span)
+ *   row 3:  c4  car  car   car  c7
+ *   row 4:  c4  c6   c6    c6   c7     (rear camera across the bottom)
+ *
+ * Camera ID is encoded in the inline style ``grid-area: c<id>`` set on each
+ * cell from JS. Missing cameras simply leave that cell empty.
+ */
 .cam-spatial-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr auto 1fr 1fr;
-  grid-template-rows: auto 1fr 1fr 1fr auto;
+  grid-template-columns: 1fr 1.4fr 1.4fr 1.4fr 1fr;
+  grid-template-rows: 1.3fr 1fr 1fr 1.3fr;
   grid-template-areas:
-    ".     front front front ."
-    "left  left  car   right right"
-    "left  left  car   right right"
-    "left  left  car   right right"
-    ".     rear  rear  rear  .";
-  gap: 3px;
+    "c2  c1   c11  c10  c9"
+    "c2  car  car  car  c9"
+    "c4  car  car  car  c7"
+    "c4  c6   c6   c6   c7";
+  gap: 4px;
   width: 100%;
   height: 100%;
   padding: 6px;
   background: #050505;
+  box-sizing: border-box;
 }
-
-.cam-zone { display: flex; gap: 3px; overflow: hidden; }
-.cam-zone-front { grid-area: front; flex-direction: row; }
-.cam-zone-left  { grid-area: left;  flex-direction: column; }
-.cam-zone-right { grid-area: right; flex-direction: column; }
-.cam-zone-rear  { grid-area: rear;  flex-direction: row; justify-content: center; }
-.cam-zone > .cam-cell { flex: 1; min-width: 0; min-height: 0; }
-.cam-zone-rear > .cam-cell { flex: 0 1 25%; max-width: 25%; }
 
 .cam-zone-car {
   grid-area: car;
-  /* Empty spacer (vehicle context shown in BEV area instead) */
-  min-width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
 }
 .cam-vehicle-svg {
-  width: 60px;
+  width: 35%;
+  max-width: 180px;
   height: auto;
-  opacity: 0.6;
+  opacity: 0.65;
 }
 
 /* --- Focus grid: 2x2 large view --- */
@@ -3086,6 +3096,38 @@ html, body {
   background: rgba(255,255,255,0.05);
 }
 
+.yolo-viewer {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.yolo-viewer .yolo-control {
+  height: 22px;
+  font-size: 10.5px;
+  padding: 1px 6px;
+}
+.yolo-viewer-btn {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 3px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.yolo-viewer-btn:hover {
+  background: rgba(99, 102, 241, 0.3);
+  border-color: rgba(99, 102, 241, 0.6);
+  color: #c7d2fe;
+}
+.yolo-viewer-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .yolo-panel-controls {
   display: flex;
   flex-wrap: wrap;
@@ -3268,6 +3310,206 @@ html, body {
   color: var(--text-tertiary);
 }
 
+.yolo-analysis {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+  flex-shrink: 0;
+}
+.yolo-analysis > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  list-style: none;
+  user-select: none;
+}
+.yolo-analysis > summary::-webkit-details-marker { display: none; }
+.yolo-analysis > summary::before {
+  content: '▸';
+  color: var(--text-tertiary);
+  transition: transform 0.15s;
+}
+.yolo-analysis[open] > summary::before {
+  transform: rotate(90deg);
+}
+.yolo-analysis-status {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 9.5px;
+}
+.yolo-analysis-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+}
+.yolo-analysis-action {
+  background: #181818;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.yolo-analysis-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: rgba(99, 102, 241, 0.55);
+}
+.yolo-analysis-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.yolo-analysis-body {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+.yolo-analysis-loading,
+.yolo-analysis-error,
+.yolo-analysis-muted {
+  color: var(--text-tertiary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.yolo-analysis-error {
+  color: #f87171;
+}
+.yolo-analysis-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+}
+.yolo-analysis-wide {
+  grid-column: 1 / -1;
+}
+.yolo-analysis-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 5px;
+}
+.yolo-analysis-card,
+.yolo-analysis-section,
+.yolo-compare-card {
+  background: #050505;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+}
+.yolo-analysis-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.yolo-analysis-card span,
+.yolo-analysis-section-title {
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.yolo-analysis-card b {
+  color: var(--text-primary);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yolo-analysis-section {
+  min-width: 0;
+}
+.yolo-analysis-section-title {
+  margin-bottom: 5px;
+}
+.yolo-health-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.yolo-health-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.yolo-health-chip.ok {
+  color: #86efac;
+  background: rgba(16, 185, 129, 0.10);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.yolo-health-chip.bad {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.yolo-analysis-tensors {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.yolo-analysis-tensor {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) 64px minmax(100px, 1fr);
+  gap: 6px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.yolo-analysis-tensor-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yolo-op-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 5px;
+}
+.yolo-op-row {
+  display: grid;
+  grid-template-columns: 84px minmax(80px, 1fr) 38px;
+  align-items: center;
+  gap: 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.yolo-op-name {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yolo-op-bar {
+  height: 6px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.yolo-op-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #3b82f6);
+}
+.yolo-op-count {
+  color: var(--text-tertiary);
+  text-align: right;
+}
+.yolo-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 5px;
+}
+.yolo-compare-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-tertiary);
+}
+.yolo-compare-card b {
+  color: var(--text-primary);
+}
+
 .yolo-panel-legend {
   display: flex;
   flex-wrap: wrap;
@@ -3307,3 +3549,179 @@ html, body {
   max-height: 80px;
 }
 
+/* ==========================================================================
+   In-app Debug Log pane (createLogPane / log-pane.js)
+   - body-fixed at the bottom of the viewport
+   - collapsed: 28px header strip showing latest summary
+   - expanded:  280px column with toolbar + scrollable list
+   ========================================================================== */
+
+.log-pane-host {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9000;
+  pointer-events: none;
+}
+.log-pane {
+  pointer-events: auto;
+  background: #0a0a0a;
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.5);
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  transition: height 120ms ease-out;
+}
+.log-pane.collapsed { height: 28px; }
+.log-pane.expanded  { height: 280px; }
+
+.log-pane-header {
+  flex-shrink: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: #111;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+}
+.log-pane-toggle {
+  display: inline-block;
+  width: 12px;
+  color: var(--text-tertiary);
+  font-size: 9px;
+  transform: translateY(-1px);
+}
+.log-pane-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+}
+.log-pane-count {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: #1f1f1f;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+.log-pane-count.has-warn  { background: #5a4310; color: #ffcc66; }
+.log-pane-count.has-error { background: #5a1414; color: #ff8a8a; }
+
+.log-pane-spacer { width: 4px; }
+.log-pane-spacer-flex { flex: 1; }
+
+.log-pane-summary {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+.log-pane-header .log-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.log-pane-header .log-filter input { cursor: pointer; }
+
+.log-pane-level {
+  background: #1a1a1a;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-family: inherit;
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.log-pane-btn {
+  background: #1a1a1a;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-family: inherit;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.log-pane-btn:hover { background: #222; color: var(--text-primary); }
+.log-pane-btn.paused { background: #5a4310; color: #ffcc66; border-color: #6a4f15; }
+
+.log-pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+  background: #050505;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.log-pane.collapsed .log-pane-body { display: none; }
+
+.log-row {
+  display: flex;
+  gap: 6px;
+  padding: 1px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.log-row:hover { background: rgba(255,255,255,0.025); }
+
+.log-ts {
+  color: #555;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  width: 88px;
+}
+.log-tag {
+  flex-shrink: 0;
+  width: 26px;
+  text-align: right;
+  font-weight: 600;
+  font-size: 9.5px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.log-row.log-src-be .log-tag { color: #7dd3fc; }
+.log-row.log-src-fe .log-tag { color: #94a3b8; }
+
+.log-lvl {
+  flex-shrink: 0;
+  width: 42px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+.log-row.log-log   .log-lvl { color: #888; }
+.log-row.log-info  .log-lvl { color: #60a5fa; }
+.log-row.log-warn  .log-lvl { color: #f59e0b; }
+.log-row.log-error .log-lvl { color: #f87171; }
+
+.log-msg {
+  flex: 1;
+  color: var(--text-secondary);
+}
+.log-row.log-warn  .log-msg { color: #fcd34d; }
+.log-row.log-error .log-msg { color: #fca5a5; }
+
+/* Reserve space at the bottom of the page so fixed log-pane never covers
+   timeline / output area when collapsed (timelines scroll, but visible
+   action buttons should stay reachable). */
+body { padding-bottom: 28px; }

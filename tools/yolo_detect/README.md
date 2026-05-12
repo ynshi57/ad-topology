@@ -141,3 +141,91 @@ mcap info /home/caros/workspace/20260416204101545.mcap | grep camera
 ```
 
 每路相机应该有 ~150-210 条消息（10Hz × 16s）。
+
+## 模型可视化（Netron 集成）
+
+ad-topology Camera View 的 YOLO 面板自带一个 **View Model** 按钮，可以直接打开 Netron 查看模型每一层的 input/output shape 和参数量。
+
+### 用法
+
+1. Camera View → 右下 YOLO panel
+2. 选模型（默认是最近一次 Run 用的那个）：`yolo11n` / `yolo11s` / `yolo11m` / `yolo11l` / `yolo11x`
+3. 点 **View Model** —— 新 tab 自动打开，加载 Netron + 模型 graph
+
+### 工作流程（**重构后：无子进程**）
+
+Netron 的 `server.py` 实际上只是一个静态文件服务器（serves the netron python package + 一个用户传入的 model 文件）。我们 Express **直接接管**这件事，不再 spawn netron 子进程。
+
+```
+点击按钮
+   ↓
+POST /netron-launch { model: "yolo11x" }
+   ↓
+Express 检查 /home/caros/workspace/yolo_weights/<model>.onnx
+   ├── 不存在 → spawn export_onnx.py 自动导出（首次 ~10-30s）
+   └── 已存在 → 直接 return
+   ↓
+返回 { proxyPath: "/netron/<model>/" }      （不 spawn 任何 viewer 进程）
+   ↓
+浏览器新 tab → http://<host>/netron/<model>/   （vite 把 /netron/* 代理到 :8765）
+   ↓
+Express 直接 read netron 包目录的 index.html / grapher.css / index.js / *.json /
+icon.png 返回；index.html 注入 <meta name="file" content="/netron/<model>/data/<model>.onnx">
+   ↓
+Netron 前端 fetch /netron/<model>/data/<model>.onnx
+   ↓
+Express 把 yolo_weights/<model>.onnx 直接 stream 回去
+   ↓
+Netron 渲染完整模型 graph
+```
+
+#### 这个架构能彻底避免
+
+| 旧问题 | 新实现 |
+|---|---|
+| netron 子进程占用端口、`EADDRINUSE` | 没有子进程 |
+| Express 重启后 `netronProcs` Map 丢失 → 503 | 无状态，任何时候 GET 都能跑 |
+| 切模型导致多个 netron 进程累积 | 同上 |
+| readiness race（端口被孤儿占着，假阳性 ready） | 没有 spawn |
+| Express crash 后留下孤儿 netron 进程 | 没有可孤儿化的进程 |
+
+### 排错
+
+- **报错 "netron python package not installed"**：`pip3 install --user netron`
+- **报错 "ONNX export failed"**：模型 `.pt` 是 LFS pointer（134 字节），不是真模型文件。把真 `.pt` 拷到 `/home/caros/workspace/yolo_weights/`
+- **Netron 页面打开但模型不加载**：用主界面右下的 **Debug Log** 面板看 Network 错误（`/netron/<model>/data/...` 是否 404）
+- **首次点击等 10–30s**：那是 `export_onnx.py` 在跑，正常；后续切回同模型瞬开
+- **netron 升级后路径变了**：server 启动时执行 `python3 -c "import netron"` 动态拿包路径，不需要硬编码
+
+## In-app Debug Log
+
+ad-topology 现在自带一个浏览器内的 Debug Log 面板（屏幕底部一条窄条，点击展开），统一展示：
+
+- **前端 console.log/info/warn/error**（拦截，原 stdout 仍正常输出）
+- **后端 Express 输出**（通过 `GET /server-log/stream` SSE 实时推过来；server 启动时拦截 `console.*` 写入 ring buffer，新连接会重放最近 500 条）
+- **window error / unhandledrejection** 也会被吃进来
+
+不需要再开浏览器开发者模式即可调试。控件：
+
+- `Pause` / `Resume`：暂停接收
+- `Clear`：清空历史
+- `FE` / `BE`：过滤来源
+- 等级下拉：log / info / warn / error 最低过滤
+- 拖拽（点击 header）展开/收起
+
+### 手动 CLI 用法（不通过 UI）
+
+```bash
+# 导出指定模型为 ONNX
+python3 tools/yolo_detect/export_onnx.py yolo11x
+
+# 导出全部 5 个模型
+python3 tools/yolo_detect/export_onnx.py --all
+
+# 重新导出（覆盖已存在的 .onnx）
+python3 tools/yolo_detect/export_onnx.py yolo11x --force
+
+# 直接打开 Netron（不通过 ad-topology）
+netron /home/caros/workspace/yolo_weights/yolo11x.onnx
+# → 浏览器自动打开 localhost:8080
+```

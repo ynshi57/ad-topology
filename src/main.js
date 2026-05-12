@@ -15,6 +15,7 @@ import { initCameraDecoders, isCameraSchema } from './camera-decoder.js';
 import { createCameraPanel, buildCameraIndex } from './camera-panel.js';
 import { isCameraVideoTopic, isVideoStreamSchema } from './videostream-decoder.js';
 import { loadYoloSidecar } from './yolo-overlay.js';
+import { createLogPane } from './log-pane.js';
 
 const app = document.getElementById('app');
 
@@ -51,6 +52,25 @@ let msgDataCache = null;
 let foxgloveChannels = null; // channels with foxglove.* schemas
 let foxgloveDataCache = null; // topic -> [{sec, decoded}]
 let foxgloveCursors = {}; // topic -> last rendered index
+
+// Mount the global Debug Log pane once. It's body-fixed (not inside the
+// `app` container) so that view re-renders never destroy/recreate it; the
+// pane survives across Topology / Camera / 3D / DropZone switches and
+// keeps its history & SSE connection.
+let _globalLogPane = null;
+function ensureLogPane() {
+  if (_globalLogPane) { return _globalLogPane; }
+  let host = document.getElementById('global-log-pane-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'global-log-pane-host';
+    host.className = 'log-pane-host';
+    document.body.appendChild(host);
+  }
+  _globalLogPane = createLogPane(host);
+  return _globalLogPane;
+}
+ensureLogPane();
 
 showDropZone();
 

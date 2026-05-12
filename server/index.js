@@ -5,9 +5,9 @@
  */
 
 import { WebSocketServer } from 'ws';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { createServer } from 'http';
-import { dirname, join, resolve as pathResolve, isAbsolute, basename } from 'path';
+import { dirname, join, resolve as pathResolve, isAbsolute, basename, sep as pathSep, extname } from 'path';
 import { existsSync, statSync, readFileSync, readdirSync, createReadStream, mkdirSync, appendFileSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
@@ -48,6 +48,70 @@ try {
   mkdirSync(MCAP_DIR, { recursive: true });
 } catch (err) {
   console.warn(`[startup] cannot ensure ${MCAP_DIR}:`, err.message);
+}
+
+// ---------------------------------------------------------------------------
+//  In-memory log capture + SSE for in-app Debug Console.
+//
+//  We monkey-patch console.{log,warn,error,info} so every backend log line
+//  is mirrored into a ring buffer, and pushed out to any subscribed SSE
+//  client (the in-app Debug Log pane). The original console functions still
+//  write to the real stdout/stderr, so tail -f / journal still works.
+// ---------------------------------------------------------------------------
+
+const LOG_BUF_MAX = 500;
+const logBuffer = [];
+const sseClients = new Set();
+
+function formatLogArg(arg) {
+  if (typeof arg === 'string') { return arg; }
+  if (arg instanceof Error) { return arg.stack || arg.message; }
+  try { return JSON.stringify(arg); }
+  catch { return String(arg); }
+}
+
+function pushLogEntry(level, args) {
+  const line = args.map(formatLogArg).join(' ');
+  const entry = { ts: Date.now(), level, line };
+  logBuffer.push(entry);
+  if (logBuffer.length > LOG_BUF_MAX) { logBuffer.shift(); }
+  const payload = `data: ${JSON.stringify(entry)}\n\n`;
+  for (const r of sseClients) {
+    try { r.write(payload); }
+    catch { /* dead client; will be cleaned on close */ }
+  }
+}
+
+const _origLog = console.log.bind(console);
+const _origWarn = console.warn.bind(console);
+const _origErr = console.error.bind(console);
+const _origInfo = console.info.bind(console);
+console.log = (...a) => { _origLog(...a); pushLogEntry('log', a); };
+console.warn = (...a) => { _origWarn(...a); pushLogEntry('warn', a); };
+console.error = (...a) => { _origErr(...a); pushLogEntry('error', a); };
+console.info = (...a) => { _origInfo(...a); pushLogEntry('info', a); };
+
+function handleServerLogStream(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+    'Access-Control-Allow-Origin': '*',
+  });
+  // Replay history first so the client sees what happened before it connected.
+  for (const e of logBuffer) {
+    res.write(`data: ${JSON.stringify(e)}\n\n`);
+  }
+  // Comment line works as keep-alive for some proxies.
+  res.write(': connected\n\n');
+  sseClients.add(res);
+  const onClose = () => {
+    sseClients.delete(res);
+    try { res.end(); } catch {}
+  };
+  req.on('close', onClose);
+  req.on('aborted', onClose);
 }
 
 /** Strip path separators / parent refs / nul bytes; return basename only. */
@@ -132,6 +196,43 @@ const httpServer = createServer(async (req, res) => {
   // { entries: [{ stem, parts: [{variant, path, size, mtime}], hasSidecar, sidecarSummary }] }.
   if (req.url === '/list-mcaps' && req.method === 'GET') {
     handleListMcaps(req, res);
+    return;
+  }
+
+  // GET /server-log/stream -- Server-Sent Events stream of backend console
+  // output. Used by the in-app Debug Log pane. History is replayed first
+  // (up to LOG_BUF_MAX entries) so a late-connecting client still sees
+  // prior log lines.
+  if (req.url === '/server-log/stream' && req.method === 'GET') {
+    handleServerLogStream(req, res);
+    return;
+  }
+
+  // POST /netron-launch -- make sure the ONNX file for `model` is on disk
+  // (lazily exporting via export_onnx.py if missing) and return the
+  // same-origin proxy path the frontend should open. NO process spawn:
+  // /netron/<model>/* is served directly by Express from the netron
+  // python package's static bundle, so this endpoint is purely a "prep
+  // the model file" hook. As a result it has no port state, no race
+  // conditions, and survives Express restarts trivially.
+  if (req.url === '/netron-launch' && req.method === 'POST') {
+    await handleNetronLaunch(req, res);
+    return;
+  }
+
+  // POST /model-analyze -- return a structured static analysis summary for
+  // YOLO11 models. This complements Netron's visual graph with machine-readable
+  // ONNX metadata, operator counts, file sizes, and lightweight health checks.
+  if (req.url === '/model-analyze' && req.method === 'POST') {
+    await handleModelAnalyze(req, res);
+    return;
+  }
+
+  // /netron/<model>/* -- serve Netron's static viewer directly from the
+  // installed `netron` python package's bundle directory; /data/<*.onnx>
+  // is served from yolo_weights/. No subprocess; nothing to clean up.
+  if (req.url?.startsWith('/netron/')) {
+    handleNetronStatic(req, res);
     return;
   }
 
@@ -474,14 +575,23 @@ function handleListMcaps(_req, res) {
       if (st.mtimeMs > g.maxMtime) { g.maxMtime = st.mtimeMs; }
     }
 
-    // Attach YOLO sidecar summary (if any)
+    // Attach YOLO sidecar summary (if any). The sidecar's basename is derived
+    // from the *input* mcap path used by detect.py, so for a record split
+    // into ``<stem>.camera.mcap`` + ``<stem>.lite.mcap`` the sidecar is
+    // typically ``<stem>.camera.yolo.json``. Probe a few canonical locations
+    // in priority order (camera variant first, then bare stem, then lite).
     for (const g of groups.values()) {
-      const sidecarPath = `${MCAP_DIR}/${g.stem}.yolo.json`;
       g.hasSidecar = false;
       g.sidecarSummary = null;
       g.sidecarPath = null;
-      try {
-        if (existsSync(sidecarPath)) {
+      const candidates = [
+        `${MCAP_DIR}/${g.stem}.camera.yolo.json`,
+        `${MCAP_DIR}/${g.stem}.yolo.json`,
+        `${MCAP_DIR}/${g.stem}.lite.yolo.json`,
+      ];
+      for (const sidecarPath of candidates) {
+        try {
+          if (!existsSync(sidecarPath)) { continue; }
           const sc = JSON.parse(readFileSync(sidecarPath, 'utf8'));
           const total = (sc.frames || []).reduce(
             (s, f) => s + (f.detections || []).length, 0,
@@ -493,9 +603,10 @@ function handleListMcaps(_req, res) {
             frames: (sc.frames || []).length,
             totalDetections: total,
           };
+          break;
+        } catch (err) {
+          console.warn(`[list-mcaps] cannot read sidecar ${sidecarPath}:`, err.message);
         }
-      } catch (err) {
-        console.warn(`[list-mcaps] cannot read sidecar ${sidecarPath}:`, err.message);
       }
       // Stable per-variant order: camera, lite, single
       const order = { camera: 0, lite: 1, single: 2 };
@@ -511,6 +622,612 @@ function handleListMcaps(_req, res) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));
   }
+}
+
+// ---------------------------------------------------------------------------
+//  Netron model viewer integration  (STATELESS / NO SUBPROCESS)
+//
+//  Netron's own server.py is just a static file server: it serves files
+//  from the netron python package directory and a single user-supplied
+//  model file under /data/<basename>. Its index.html uses purely relative
+//  asset URLs (href="grapher.css", src="index.js", ...).
+//
+//  Therefore we don't need to spawn a netron subprocess at all -- Express
+//  serves the bundle directly. This eliminates the entire class of bugs
+//  we hit before:
+//
+//    - port conflicts / EADDRINUSE
+//    - orphan netron processes after Express crash/restart
+//    - in-memory `netronProcs` Map losing state on Express restart
+//    - readiness race between port-probe and our spawned process dying
+//
+//  /netron-launch becomes purely "make sure the ONNX file exists on disk"
+//  (lazy export). /netron/<model>/* is a static handler.
+// ---------------------------------------------------------------------------
+
+const YOLO_WEIGHTS_DIR = '/home/caros/workspace/yolo_weights';
+const KNOWN_YOLO_MODELS = new Set(['yolo11n', 'yolo11s', 'yolo11m', 'yolo11l', 'yolo11x']);
+const EXPORT_ONNX_SCRIPT = join(__dirname, '..', 'tools', 'yolo_detect', 'export_onnx.py');
+
+// Resolve the netron python package directory at startup (handles the case
+// where the user upgrades / reinstalls and the python version changes).
+const NETRON_PKG_DIR = (() => {
+  try {
+    const out = execSync(
+      'python3 -c "import netron, os; print(os.path.dirname(netron.__file__))"',
+      { encoding: 'utf-8', timeout: 5000 },
+    ).trim();
+    if (out && existsSync(out)) {
+      console.log(`[netron] static bundle: ${out}`);
+      return out;
+    }
+    console.warn(`[netron] python returned a path that doesn't exist: ${out}`);
+    return null;
+  } catch (err) {
+    console.warn(`[netron] cannot locate package: ${err.message}`);
+    return null;
+  }
+})();
+
+const NETRON_MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js':   'application/javascript; charset=utf-8',
+  '.css':  'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png':  'image/png',
+  '.ico':  'image/x-icon',
+  '.svg':  'image/svg+xml',
+  '.woff2':'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf':  'font/ttf',
+  '.eot':  'application/vnd.ms-fontobject',
+};
+
+/** Lazily run export_onnx.py if <weights>/<model>.onnx is missing. */
+function ensureOnnxExported(modelName) {
+  return new Promise((resolve, reject) => {
+    const onnxPath = `${YOLO_WEIGHTS_DIR}/${modelName}.onnx`;
+    if (existsSync(onnxPath) && statSync(onnxPath).size > 1024) {
+      resolve(onnxPath);
+      return;
+    }
+    if (!existsSync(EXPORT_ONNX_SCRIPT)) {
+      reject(new Error(`export script missing: ${EXPORT_ONNX_SCRIPT}`));
+      return;
+    }
+    console.log(`[netron] exporting ONNX for ${modelName} ...`);
+    const child = spawn('python3', [EXPORT_ONNX_SCRIPT, modelName], {
+      env: { ...ENV, PYTHONUNBUFFERED: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderrBuf = '';
+    child.stdout.on('data', d => {
+      const t = d.toString().trim();
+      if (t) { console.log(`[netron:export:${modelName}] ${t}`); }
+    });
+    child.stderr.on('data', d => {
+      const t = d.toString().trim();
+      stderrBuf += t + '\n';
+      if (t) { console.warn(`[netron:export:${modelName}] ${t}`); }
+    });
+    child.on('error', err => reject(err));
+    child.on('close', code => {
+      if (code !== 0) {
+        reject(new Error(`export failed (code ${code}): ${stderrBuf.slice(-500)}`));
+      } else if (!existsSync(onnxPath)) {
+        reject(new Error(`export reported success but ${onnxPath} missing`));
+      } else {
+        console.log(`[netron] exported ${onnxPath} (${statSync(onnxPath).size} bytes)`);
+        resolve(onnxPath);
+      }
+    });
+  });
+}
+
+async function handleNetronLaunch(req, res) {
+  let body = '';
+  try {
+    for await (const chunk of req) {
+      body += chunk.toString();
+      if (body.length > 8 * 1024) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'body too large' }));
+        return;
+      }
+    }
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `read body: ${err.message}` }));
+    return;
+  }
+
+  let payload;
+  try { payload = body ? JSON.parse(body) : {}; }
+  catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `invalid JSON: ${err.message}` }));
+    return;
+  }
+
+  const modelName = payload.model;
+  if (!KNOWN_YOLO_MODELS.has(modelName)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'invalid or missing model',
+      allowed: [...KNOWN_YOLO_MODELS],
+    }));
+    return;
+  }
+
+  if (!NETRON_PKG_DIR) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'netron python package not installed',
+      hint: 'pip3 install --user netron',
+    }));
+    return;
+  }
+
+  const ptPath = `${YOLO_WEIGHTS_DIR}/${modelName}.pt`;
+  if (!existsSync(ptPath)) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: `model weights missing: ${ptPath}`,
+      hint: `download ${modelName}.pt from GitHub and place at ${ptPath}`,
+    }));
+    return;
+  }
+
+  let onnxPath;
+  try {
+    onnxPath = await ensureOnnxExported(modelName);
+  } catch (err) {
+    console.error(`[netron-launch] ${err.message}`);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `ONNX export failed: ${err.message}` }));
+    return;
+  }
+
+  console.log(`[netron-launch] ready: ${modelName} -> ${onnxPath}`);
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({
+    proxyPath: `/netron/${modelName}/`,
+    model: modelName,
+    onnxPath,
+    onnxSize: statSync(onnxPath).size,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+//  Model analysis endpoint
+// ---------------------------------------------------------------------------
+
+const MODEL_ANALYZE_SCRIPT = String.raw`
+import json
+import os
+import sys
+import traceback
+from collections import Counter
+
+onnx_path, pt_path, model_name = sys.argv[1:4]
+
+def file_info(path):
+    st = os.stat(path)
+    return {
+        "path": path,
+        "bytes": st.st_size,
+        "mtimeMs": int(st.st_mtime * 1000),
+    }
+
+def tensor_type(value_info):
+    tensor = value_info.type.tensor_type
+    elem = tensor.elem_type
+    try:
+        dtype = onnx.TensorProto.DataType.Name(elem)
+    except Exception:
+        dtype = str(elem)
+    shape = []
+    for dim in tensor.shape.dim:
+        if dim.HasField("dim_value"):
+            shape.append(dim.dim_value)
+        elif dim.HasField("dim_param"):
+            shape.append(dim.dim_param)
+        else:
+            shape.append(None)
+    return {
+        "name": value_info.name,
+        "dtype": dtype,
+        "shape": shape,
+    }
+
+def ultralytics_summary(path):
+    try:
+        from ultralytics import YOLO
+        yolo = YOLO(path)
+        torch_model = getattr(yolo, "model", None)
+        if torch_model is None:
+            return {"ok": False, "error": "YOLO model object has no .model"}
+        params = sum(p.numel() for p in torch_model.parameters())
+        gradients = sum(p.numel() for p in torch_model.parameters() if p.requires_grad)
+        modules = sum(1 for _ in torch_model.modules())
+        return {
+            "ok": True,
+            "params": params,
+            "gradients": gradients,
+            "modules": modules,
+            "task": getattr(yolo, "task", None),
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+try:
+    try:
+        import onnx
+        from onnx import checker, shape_inference
+    except Exception as exc:
+        print(json.dumps({
+            "dependencyMissing": "onnx",
+            "error": str(exc),
+        }))
+        sys.exit(2)
+
+    health = {"load": {"ok": False}, "checker": {"ok": False}, "shapeInference": {"ok": False}}
+    model = onnx.load(onnx_path)
+    health["load"] = {"ok": True}
+
+    try:
+        checker.check_model(model)
+        health["checker"] = {"ok": True}
+    except Exception as exc:
+        health["checker"] = {"ok": False, "error": str(exc)}
+
+    inferred = None
+    try:
+        inferred = shape_inference.infer_shapes(model)
+        health["shapeInference"] = {"ok": True}
+    except Exception as exc:
+        health["shapeInference"] = {"ok": False, "error": str(exc)}
+
+    graph = (inferred or model).graph
+    initializer_names = {init.name for init in graph.initializer}
+    inputs = [tensor_type(v) for v in graph.input if v.name not in initializer_names]
+    outputs = [tensor_type(v) for v in graph.output]
+    value_info_count = len(graph.value_info)
+
+    counts = Counter(node.op_type for node in model.graph.node)
+    top = [{"op": op, "count": count} for op, count in counts.most_common(20)]
+
+    result = {
+        "model": model_name,
+        "netronUrl": f"/netron/{model_name}/",
+        "files": {
+            "pt": file_info(pt_path),
+            "onnx": file_info(onnx_path),
+        },
+        "onnx": {
+            "irVersion": model.ir_version,
+            "producerName": model.producer_name,
+            "producerVersion": model.producer_version,
+            "opsets": [
+                {"domain": opset.domain or "ai.onnx", "version": opset.version}
+                for opset in model.opset_import
+            ],
+        },
+        "graph": {
+            "name": model.graph.name,
+            "nodes": len(model.graph.node),
+            "initializers": len(model.graph.initializer),
+            "valueInfo": value_info_count,
+            "inputs": inputs,
+            "outputs": outputs,
+        },
+        "operators": {
+            "unique": len(counts),
+            "total": sum(counts.values()),
+            "top": top,
+            "counts": dict(sorted(counts.items())),
+        },
+        "health": health,
+        "ultralytics": ultralytics_summary(pt_path),
+    }
+    print(json.dumps(result))
+except Exception as exc:
+    print(json.dumps({
+        "error": str(exc),
+        "traceback": traceback.format_exc(limit=8),
+    }))
+    sys.exit(1)
+`;
+
+async function readJsonBody(req, maxBytes = 64 * 1024) {
+  let body = '';
+  for await (const chunk of req) {
+    body += chunk.toString();
+    if (body.length > maxBytes) {
+      const err = new Error('body too large');
+      err.status = 413;
+      throw err;
+    }
+  }
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch (err) {
+    const parseErr = new Error(`invalid JSON: ${err.message}`);
+    parseErr.status = 400;
+    throw parseErr;
+  }
+}
+
+function runModelAnalyzeScript({ modelName, ptPath, onnxPath }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('python3', ['-c', MODEL_ANALYZE_SCRIPT, onnxPath, ptPath, modelName], {
+      env: { ...ENV, PYTHONUNBUFFERED: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', d => { stdout += d.toString(); });
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('error', reject);
+    child.on('close', code => {
+      let parsed = null;
+      try {
+        parsed = stdout.trim() ? JSON.parse(stdout.trim().split(/\r?\n/).pop()) : null;
+      } catch (err) {
+        const parseErr = new Error(`analyzer returned non-JSON output: ${err.message}`);
+        parseErr.stderr = stderr.slice(-1000);
+        parseErr.stdout = stdout.slice(-1000);
+        reject(parseErr);
+        return;
+      }
+      if (parsed?.dependencyMissing) {
+        const depErr = new Error(`python dependency missing: ${parsed.dependencyMissing}: ${parsed.error}`);
+        depErr.status = 503;
+        depErr.dependency = parsed.dependencyMissing;
+        reject(depErr);
+        return;
+      }
+      if (code !== 0) {
+        const err = new Error(parsed?.error || `analyzer exited with code ${code}`);
+        err.status = 500;
+        err.stderr = stderr.slice(-1000);
+        err.traceback = parsed?.traceback;
+        reject(err);
+        return;
+      }
+      if (!parsed) {
+        reject(new Error('analyzer produced no JSON result'));
+        return;
+      }
+      if (stderr.trim()) {
+        parsed.analyzerStderr = stderr.trim().slice(-1000);
+      }
+      resolve(parsed);
+    });
+  });
+}
+
+async function analyzeOneModel(modelName) {
+  if (!KNOWN_YOLO_MODELS.has(modelName)) {
+    const err = new Error('invalid or missing model');
+    err.status = 400;
+    err.allowed = [...KNOWN_YOLO_MODELS];
+    throw err;
+  }
+  const ptPath = `${YOLO_WEIGHTS_DIR}/${modelName}.pt`;
+  if (!existsSync(ptPath)) {
+    const err = new Error(`model weights missing: ${ptPath}`);
+    err.status = 404;
+    err.hint = `download ${modelName}.pt from GitHub and place at ${ptPath}`;
+    throw err;
+  }
+  const onnxPath = await ensureOnnxExported(modelName);
+  const analysis = await runModelAnalyzeScript({ modelName, ptPath, onnxPath });
+  console.log(`[model-analyze] ${modelName}: nodes=${analysis.graph?.nodes ?? '?'} ops=${analysis.operators?.unique ?? '?'}`);
+  return analysis;
+}
+
+async function handleModelAnalyze(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req, 16 * 1024);
+  } catch (err) {
+    res.writeHead(err.status || 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+
+  const modelName = payload.model;
+  const compareAll = payload.compareAll === true;
+
+  try {
+    const primary = await analyzeOneModel(modelName);
+    if (compareAll) {
+      const comparisons = [];
+      for (const candidate of KNOWN_YOLO_MODELS) {
+        const ptPath = `${YOLO_WEIGHTS_DIR}/${candidate}.pt`;
+        if (!existsSync(ptPath)) {
+          continue;
+        }
+        if (candidate === modelName) {
+          const primaryComparison = { ...primary };
+          delete primaryComparison.comparisons;
+          comparisons.push(primaryComparison);
+          continue;
+        }
+        comparisons.push(await analyzeOneModel(candidate));
+      }
+      primary.comparisons = comparisons;
+    }
+    const json = JSON.stringify(primary);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(json);
+  } catch (err) {
+    console.error(`[model-analyze] ${err.message}`);
+    const body = {
+      error: err.message,
+      allowed: err.allowed,
+      hint: err.hint,
+      dependency: err.dependency,
+      traceback: err.traceback,
+    };
+    if (!res.headersSent) {
+      res.writeHead(err.status || 500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    } else if (!res.writableEnded) {
+      res.end();
+    }
+  }
+}
+
+/**
+ * Static handler for ``/netron/<model>/<rest>``.
+ *
+ *   /netron/<model>/                  -> netron/index.html (with injected
+ *                                        <meta name="file" content="...">)
+ *   /netron/<model>/<asset>           -> netron/<asset> from python package
+ *   /netron/<model>/data/<file>.onnx  -> YOLO_WEIGHTS_DIR/<file>.onnx
+ *
+ * No subprocess, no port, no state. Everything is recomputed per request
+ * from the filesystem; safe across Express restarts.
+ */
+function handleNetronStatic(req, res) {
+  if (!NETRON_PKG_DIR) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'netron python package not installed',
+      hint: 'pip3 install --user netron',
+    }));
+    return;
+  }
+
+  const m = req.url.match(/^\/netron\/([a-zA-Z0-9_]+)(\/[^?]*)?(\?.*)?$/);
+  if (!m) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'bad netron path' }));
+    return;
+  }
+  const modelName = m[1];
+  let restPath = m[2] || '/';
+
+  if (!KNOWN_YOLO_MODELS.has(modelName)) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: `unknown model: ${modelName}`,
+      allowed: [...KNOWN_YOLO_MODELS],
+    }));
+    return;
+  }
+
+  // ---- /data/<basename>.onnx -- serve the model file ------------------
+  if (restPath.startsWith('/data/')) {
+    const safe = sanitizeBasename(decodeURIComponent(restPath.slice('/data/'.length)));
+    if (!safe || !safe.toLowerCase().endsWith('.onnx')) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'only .onnx basenames allowed' }));
+      return;
+    }
+    const onnxPath = `${YOLO_WEIGHTS_DIR}/${safe}`;
+    if (!existsSync(onnxPath) || !statSync(onnxPath).isFile()) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `not found: ${safe}` }));
+      return;
+    }
+    const st = statSync(onnxPath);
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': st.size,
+      'Cache-Control': 'no-cache',
+    });
+    const stream = createReadStream(onnxPath);
+    stream.on('error', err => {
+      console.error('[netron-static] data stream err:', err.message);
+      if (!res.writableEnded) { try { res.end(); } catch {} }
+    });
+    stream.pipe(res);
+    return;
+  }
+
+  // ---- /<asset> -- serve from netron python package -------------------
+  const fileRel = (restPath === '/' || restPath === '') ? '/index.html' : restPath;
+
+  // Path-traversal protection.
+  const pkgRoot = pathResolve(NETRON_PKG_DIR);
+  const filePath = pathResolve(join(pkgRoot, fileRel));
+  if (!filePath.startsWith(pkgRoot + pathSep) && filePath !== pkgRoot) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'forbidden' }));
+    return;
+  }
+
+  if (!existsSync(filePath)) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `not found: ${fileRel}` }));
+    return;
+  }
+  const st = statSync(filePath);
+  if (!st.isFile()) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `not a file: ${fileRel}` }));
+    return;
+  }
+  const ext = extname(filePath).toLowerCase();
+  const ctype = NETRON_MIME[ext];
+  if (!ctype) {
+    res.writeHead(415, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `unsupported asset type: ${ext}` }));
+    return;
+  }
+
+  // index.html: replace netron's <meta name="version"> with one that
+  // additionally tells the viewer where to fetch the model file. We
+  // mirror netron's own substitution logic in server.py so future netron
+  // upgrades stay compatible.
+  //
+  // IMPORTANT: the ``file`` meta MUST be a *relative* path (no leading
+  // slash, no ``./``). netron's browser.js `_url(file)` treats absolute
+  // paths as relative-to-host -- it strips the leading ``/`` and then
+  // prepends ``location.pathname``. With pathname=``/netron/<model>/``
+  // and content=``/netron/<model>/data/<model>.onnx`` that yields a
+  // DOUBLED path ``/netron/<model>/netron/<model>/data/<model>.onnx``
+  // and netron pops up "The web request failed with status code '404'."
+  // Using a relative ``data/<model>.onnx`` makes _url() produce the
+  // intended ``/netron/<model>/data/<model>.onnx``.
+  if (fileRel === '/index.html') {
+    let html = readFileSync(filePath, 'utf-8');
+    const onnxBase = `${modelName}.onnx`;
+    const versionMeta = html.match(/<meta name="version"[^>]*>/);
+    const inject =
+      `<meta name="file" content="data/${onnxBase}">\n` +
+      `<meta name="name" content="${onnxBase}">`;
+    if (versionMeta) {
+      html = html.replace(versionMeta[0], versionMeta[0] + '\n' + inject);
+    } else {
+      // Fallback: inject into <head>.
+      html = html.replace(/<head[^>]*>/i, (h) => h + '\n' + inject);
+    }
+    const buf = Buffer.from(html, 'utf-8');
+    res.writeHead(200, {
+      'Content-Type': ctype,
+      'Content-Length': buf.length,
+      'Cache-Control': 'no-cache',
+    });
+    res.end(buf);
+    return;
+  }
+
+  // Other assets: stream as-is.
+  res.writeHead(200, {
+    'Content-Type': ctype,
+    'Content-Length': st.size,
+    'Cache-Control': 'public, max-age=300',
+  });
+  const stream = createReadStream(filePath);
+  stream.on('error', err => {
+    console.error('[netron-static] asset stream err:', err.message);
+    if (!res.writableEnded) { try { res.end(); } catch {} }
+  });
+  stream.pipe(res);
 }
 
 function handleFindMcap(req, res) {

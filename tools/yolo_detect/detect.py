@@ -424,18 +424,51 @@ def main():
 
     print('Loading model ...')
     t0 = time.time()
-    # Resolve model weights relative to this script's directory so spawning
-    # `detect.py` from any CWD (e.g. the node server inherits CWD =
-    # ad-topology/) finds the cached .pt file instead of trying to redownload
-    # it into the calling CWD. If a cached file is not present, fall back to
-    # the bare name and let Ultralytics download it (best-effort, requires
-    # github.com reachable).
+    # Resolve model weights. We search several locations in priority order
+    # so the resolver works whether weights are placed inside or outside
+    # the git repo. The repo's ``tools/yolo_detect/`` directory is governed
+    # by a ``*.pt filter=lfs`` rule in .gitattributes, so any .pt placed
+    # there can be silently replaced with an LFS pointer file (134 bytes of
+    # text) on git operations -- which then breaks ``torch.load`` with an
+    # ``UnpicklingError: invalid load key, 'v'``. Prefer paths OUTSIDE the
+    # repo to avoid that footgun.
+    #
+    # Search order (first valid match wins):
+    #   1. $YOLO_WEIGHTS_DIR/<model>.pt           (env override)
+    #   2. /home/caros/workspace/yolo_weights/<model>.pt
+    #   3. <script_dir>/<model>.pt                (legacy, may be LFS pointer)
+    #   4. <model>.pt                             (let Ultralytics download)
     script_dir = Path(__file__).resolve().parent
-    cached_pt = script_dir / f'{args.model}.pt'
-    if cached_pt.is_file():
-        model_arg = str(cached_pt)
-        print(f'  using cached weights: {model_arg}')
-    else:
+    candidates = []
+    env_dir = os.environ.get('YOLO_WEIGHTS_DIR')
+    if env_dir:
+        candidates.append(Path(env_dir) / f'{args.model}.pt')
+    candidates.append(Path('/home/caros/workspace/yolo_weights') / f'{args.model}.pt')
+    candidates.append(script_dir / f'{args.model}.pt')
+
+    def _looks_like_pytorch_pt(path: Path) -> bool:
+        """A real .pt is a zip archive; LFS pointers are tiny ASCII files."""
+        try:
+            if not path.is_file():
+                return False
+            if path.stat().st_size < 1024:
+                return False
+            with open(path, 'rb') as fp:
+                return fp.read(2) == b'PK'
+        except OSError:
+            return False
+
+    model_arg = None
+    for c in candidates:
+        if _looks_like_pytorch_pt(c):
+            model_arg = str(c)
+            print(f'  using cached weights: {model_arg}')
+            break
+        if c.is_file():
+            print(f'  warn: {c} exists but is not a valid PyTorch model '
+                  f'({c.stat().st_size} bytes; likely Git LFS pointer)',
+                  file=sys.stderr)
+    if model_arg is None:
         model_arg = f'{args.model}.pt'
         print(f'  no cached weights; will download {model_arg} (needs github.com)')
     model = YOLO(model_arg)
