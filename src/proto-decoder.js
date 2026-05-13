@@ -198,6 +198,20 @@ export function decodeMessage(schemaId, data) {
   }
 }
 
+export function decodeMessageByType(typeName, data) {
+  const cached = [...schemaCache.values()].find(s => s.name === typeName);
+  if (!cached) return null;
+  try {
+    const input = data instanceof Uint8Array ? data : new Uint8Array(data);
+    const msg = cached.messageType.decode(input);
+    return cached.messageType.toObject(msg, {
+      longs: Number, enums: String, bytes: String, defaults: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function getSchemaName(schemaId) {
   return schemaCache.get(schemaId)?.name || 'unknown';
 }

@@ -149,7 +149,14 @@ CMakeFiles/executor_harness.dir/src/main.cpp.o: \
  /usr/include/c++/9/bits/basic_ios.tcc /usr/include/c++/9/ostream \
  /usr/include/c++/9/bits/ostream.tcc /usr/include/c++/9/bits/istream.tcc \
  /usr/include/c++/9/bits/sstream.tcc /usr/include/c++/9/iostream \
- /usr/include/c++/9/vector /usr/include/c++/9/bits/stl_construct.h \
+ /usr/include/c++/9/unordered_map /usr/include/c++/9/ext/aligned_buffer.h \
+ /usr/include/c++/9/bits/hashtable.h \
+ /usr/include/c++/9/bits/hashtable_policy.h \
+ /usr/include/c++/9/bits/node_handle.h /usr/include/c++/9/optional \
+ /usr/include/c++/9/bits/enable_special_members.h \
+ /usr/include/c++/9/bits/unordered_map.h \
+ /usr/include/c++/9/bits/erase_if.h /usr/include/c++/9/vector \
+ /usr/include/c++/9/bits/stl_construct.h \
  /usr/include/c++/9/bits/stl_uninitialized.h \
  /usr/include/c++/9/bits/stl_vector.h \
  /usr/include/c++/9/bits/stl_bvector.h /usr/include/c++/9/bits/vector.tcc \
@@ -164,7 +171,6 @@ CMakeFiles/executor_harness.dir/src/main.cpp.o: \
  /usr/include/c++/9/bits/shared_ptr_base.h \
  /usr/include/c++/9/bits/allocated_ptr.h \
  /usr/include/c++/9/bits/refwrap.h \
- /usr/include/c++/9/ext/aligned_buffer.h \
  /usr/include/c++/9/bits/shared_ptr_atomic.h \
  /usr/include/c++/9/bits/atomic_base.h \
  /usr/include/c++/9/bits/atomic_lockfree_defines.h \
@@ -179,18 +185,13 @@ CMakeFiles/executor_harness.dir/src/main.cpp.o: \
  /home/caros/workspace/gears/x86_64/include/json/reader.h \
  /home/caros/workspace/gears/x86_64/include/json/value.h \
  /usr/include/c++/9/map /usr/include/c++/9/bits/stl_tree.h \
- /usr/include/c++/9/bits/node_handle.h /usr/include/c++/9/optional \
- /usr/include/c++/9/bits/enable_special_members.h \
  /usr/include/c++/9/bits/stl_map.h /usr/include/c++/9/bits/stl_multimap.h \
- /usr/include/c++/9/bits/erase_if.h /usr/include/c++/9/deque \
- /usr/include/c++/9/bits/stl_deque.h /usr/include/c++/9/bits/deque.tcc \
- /usr/include/c++/9/stack /usr/include/c++/9/bits/stl_stack.h \
+ /usr/include/c++/9/deque /usr/include/c++/9/bits/stl_deque.h \
+ /usr/include/c++/9/bits/deque.tcc /usr/include/c++/9/stack \
+ /usr/include/c++/9/bits/stl_stack.h \
  /home/caros/workspace/gears/x86_64/include/json/writer.h \
  /home/caros/cyberrt/include/task/executor/executor.hpp \
- /usr/include/c++/9/unordered_map /usr/include/c++/9/bits/hashtable.h \
- /usr/include/c++/9/bits/hashtable_policy.h \
- /usr/include/c++/9/bits/unordered_map.h /usr/include/c++/9/unordered_set \
- /usr/include/c++/9/bits/unordered_set.h \
+ /usr/include/c++/9/unordered_set /usr/include/c++/9/bits/unordered_set.h \
  /home/caros/cyberrt/include/buffer/buffer_filter_base.hpp \
  /usr/include/c++/9/functional /usr/include/c++/9/bits/std_function.h \
  /usr/include/c++/9/bits/stl_algo.h \
@@ -333,90 +334,4 @@ CMakeFiles/executor_harness.dir/src/main.cpp.o: \
  /home/caros/cyberrt/include/proto/map_lane.pb.h \
  /home/caros/cyberrt/include/proto/map_geometry.pb.h \
  /home/caros/cyberrt/include/proto/map_id.pb.h \
- /home/caros/cyberrt/include/proto/error_code.pb.h \
- /home/caros/cyberrt/include/cyber/spdlog/neolix_log.h \
- /home/caros/cyberrt/include/cyber/spdlog/spdlog/common.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/tweakme.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/null_mutex.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/fmt/fmt.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/fmt/bundled/core.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/fmt/bundled/format.h \
- /usr/include/c++/9/cmath /usr/include/math.h \
- /usr/include/x86_64-linux-gnu/bits/math-vector.h \
- /usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h \
- /usr/include/x86_64-linux-gnu/bits/flt-eval-method.h \
- /usr/include/x86_64-linux-gnu/bits/fp-logb.h \
- /usr/include/x86_64-linux-gnu/bits/fp-fast.h \
- /usr/include/x86_64-linux-gnu/bits/mathcalls-helper-functions.h \
- /usr/include/x86_64-linux-gnu/bits/mathcalls.h \
- /usr/include/x86_64-linux-gnu/bits/mathcalls-narrow.h \
- /usr/include/x86_64-linux-gnu/bits/iscanonical.h \
- /usr/include/c++/9/bits/specfun.h /usr/include/c++/9/tr1/gamma.tcc \
- /usr/include/c++/9/tr1/special_function_util.h \
- /usr/include/c++/9/tr1/bessel_function.tcc \
- /usr/include/c++/9/tr1/beta_function.tcc \
- /usr/include/c++/9/tr1/ell_integral.tcc \
- /usr/include/c++/9/tr1/exp_integral.tcc \
- /usr/include/c++/9/tr1/hypergeometric.tcc \
- /usr/include/c++/9/tr1/legendre_function.tcc \
- /usr/include/c++/9/tr1/modified_bessel_func.tcc \
- /usr/include/c++/9/tr1/poly_hermite.tcc \
- /usr/include/c++/9/tr1/poly_laguerre.tcc \
- /usr/include/c++/9/tr1/riemann_zeta.tcc \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/fmt/bundled/core.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/fmt/bundled/format-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/fmt/bundled/format.h \
- /home/caros/cyberrt/include/cyber/spdlog/spdlog/common-inl.h \
- /home/caros/cyberrt/include/cyber/spdlog/spdlog/fmt/bundled/format.h \
- /home/caros/cyberrt/include/cyber/spdlog/spdlog/spdlog.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/registry.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/registry-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/periodic_worker.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/periodic_worker-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/logger.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/log_msg.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/log_msg-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/os.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/os-inl.h \
- /usr/include/x86_64-linux-gnu/sys/stat.h \
- /usr/include/x86_64-linux-gnu/bits/stat.h \
- /usr/include/x86_64-linux-gnu/bits/statx.h /usr/include/linux/stat.h \
- /usr/include/linux/types.h /usr/include/x86_64-linux-gnu/asm/types.h \
- /usr/include/asm-generic/types.h /usr/include/asm-generic/int-ll64.h \
- /usr/include/x86_64-linux-gnu/asm/bitsperlong.h \
- /usr/include/asm-generic/bitsperlong.h /usr/include/linux/posix_types.h \
- /usr/include/linux/stddef.h \
- /usr/include/x86_64-linux-gnu/asm/posix_types.h \
- /usr/include/x86_64-linux-gnu/asm/posix_types_64.h \
- /usr/include/asm-generic/posix_types.h \
- /usr/include/x86_64-linux-gnu/bits/statx-generic.h \
- /usr/include/x86_64-linux-gnu/bits/types/struct_statx_timestamp.h \
- /usr/include/x86_64-linux-gnu/bits/types/struct_statx.h \
- /usr/include/fcntl.h /usr/include/x86_64-linux-gnu/bits/fcntl.h \
- /usr/include/x86_64-linux-gnu/bits/fcntl-linux.h \
- /usr/include/x86_64-linux-gnu/bits/types/struct_iovec.h \
- /usr/include/linux/falloc.h /usr/include/x86_64-linux-gnu/sys/syscall.h \
- /usr/include/x86_64-linux-gnu/asm/unistd.h \
- /usr/include/x86_64-linux-gnu/asm/unistd_64.h \
- /usr/include/x86_64-linux-gnu/bits/syscall.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/backtracer.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/log_msg_buffer.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/log_msg_buffer-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/circular_q.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/backtracer-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/logger-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/sinks/sink.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/formatter.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/sinks/sink-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/pattern_formatter.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/pattern_formatter-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/fmt_helper.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/sinks/ansicolor_sink.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/console_globals.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/sinks/ansicolor_sink-inl.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/version.h \
- /home/caros/workspace/cyber/cyber/spdlog/include/spdlog/details/synchronous_factory.h \
- /home/caros/cyberrt/include/cyber/spdlog/spdlog/spdlog-inl.h \
- /home/caros/cyberrt/include/cyber/spdlog/location_log.h \
- /home/caros/cyberrt/include/cyber/spdlog/data_log.h \
- /home/caros/cyberrt/include/cyber/spdlog/perf_log.h
+ /home/caros/cyberrt/include/proto/error_code.pb.h

@@ -14,6 +14,8 @@ import { tmpdir } from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HARNESS_BIN = join(__dirname, '..', 'backend', 'build', 'executor_harness');
+const LOG_DIR = join(__dirname, '..', 'logs');
+const HARNESS_LOG = join(LOG_DIR, 'executor_harness.log');
 const RECORD2MCAP_BIN_CANDIDATES = [
   // Combined backend build (CMake add_subdirectory layout).
   join(__dirname, '..', 'backend', 'build', 'record2mcap', 'record2mcap'),
@@ -48,6 +50,11 @@ try {
   mkdirSync(MCAP_DIR, { recursive: true });
 } catch (err) {
   console.warn(`[startup] cannot ensure ${MCAP_DIR}:`, err.message);
+}
+try {
+  mkdirSync(LOG_DIR, { recursive: true });
+} catch (err) {
+  console.warn(`[startup] cannot ensure ${LOG_DIR}:`, err.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -377,12 +384,14 @@ wss.on('connection', (ws) => {
     if (harness) return;
 
     console.log('[Harness] Spawning:', HARNESS_BIN);
+    appendFileSync(HARNESS_LOG, `\n===== spawn ${new Date().toISOString()} ${HARNESS_BIN} =====\n`);
     harness = spawn(HARNESS_BIN, [], {
       env: ENV,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     harness.stdout.on('data', (chunk) => {
+      appendFileSync(HARNESS_LOG, chunk);
       lineBuffer += chunk.toString();
       const lines = lineBuffer.split('\n');
       lineBuffer = lines.pop() || '';
@@ -399,6 +408,7 @@ wss.on('connection', (ws) => {
     });
 
     harness.stderr.on('data', (chunk) => {
+      appendFileSync(HARNESS_LOG, chunk);
       const text = chunk.toString().trim();
       if (text) {
         console.log('[Harness stderr]', text);

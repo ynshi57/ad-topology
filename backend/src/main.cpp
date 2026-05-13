@@ -21,6 +21,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <json/json.h>
@@ -48,8 +49,6 @@ public:
 
 using namespace neolix::nexis;
 
-#include "cyber/spdlog/neolix_log.h"
-
 static std::string base64Decode(const std::string& encoded) {
     static const std::string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     std::vector<uint8_t> out;
@@ -75,8 +74,6 @@ static void writeResponse(const Json::Value& resp) {
 }
 
 int main(int argc, char** argv) {
-    INIT_NEOLOG("executor_harness", "/tmp", neodrive::neolog::INFO);
-
     // Dual-mode harnesses
     harness::ExecutorHarness execHarness;
     harness::CyberComponentHarness cyberHarness;
@@ -137,6 +134,13 @@ int main(int argc, char** argv) {
             for (const auto& n : cmd["output_data_names"]) {
                 outputDataNames.push_back(n.asString());
             }
+            std::unordered_map<std::string, std::string> outputProtoTypes;
+            if (cmd.isMember("output_proto_types") && cmd["output_proto_types"].isObject()) {
+                const auto names = cmd["output_proto_types"].getMemberNames();
+                for (const auto& name : names) {
+                    outputProtoTypes[name] = cmd["output_proto_types"][name].asString();
+                }
+            }
 
             harness::GradingConfig gradingCfg;
             if (cmd.isMember("grading")) {
@@ -152,6 +156,7 @@ int main(int argc, char** argv) {
                 cfg.executorClass = className;
                 cfg.configPaths = configPaths;
                 cfg.outputDataNames = outputDataNames;
+                cfg.outputProtoTypes = outputProtoTypes;
                 cfg.grading = gradingCfg;
                 return execHarness.loadModule(cfg, errOut);
             };
@@ -201,6 +206,12 @@ int main(int argc, char** argv) {
                     }
                     for (const auto& n : ex["output_data_names"]) {
                         cfg.outputDataNames.push_back(n.asString());
+                    }
+                    if (ex.isMember("output_proto_types") && ex["output_proto_types"].isObject()) {
+                        const auto names = ex["output_proto_types"].getMemberNames();
+                        for (const auto& name : names) {
+                            cfg.outputProtoTypes[name] = ex["output_proto_types"][name].asString();
+                        }
                     }
                     configs.push_back(std::move(cfg));
                 }

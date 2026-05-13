@@ -86,6 +86,7 @@ export default {
         input_topics: ctx.inputTopics,
         output_topics: ctx.outputTopics,
         output_data_names: ctx.outputDataNames,
+        output_proto_types: ctx.outputProtoTypes || {},
         runtime: ctx.runtime,
       }));
     });

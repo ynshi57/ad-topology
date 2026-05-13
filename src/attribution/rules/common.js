@@ -106,12 +106,21 @@ export const commonRules = [
   {
     id: 'L2_OUTPUT_THRESHOLD',
     appliesTo: ['S2'],
-    evaluate(evidence) {
+    evaluate(evidence, ctx) {
       const total = evidence.totalFrames || 0;
       const l2 = evidence.l2Frames || 0;
       const avgBytes = evidence.avgOutputBytes || 0;
       if (total === 0) {
         return null;
+      }
+      if (ctx?.nodeId === 'fault_manager') {
+        const outputs = evidence.allOutputMetrics || [];
+        const hasFaultProcess = outputs.some(o =>
+          o.name === 'fault_process_data' && o.non_empty && (o.data_size || 0) > 0
+        );
+        if (hasFaultProcess) {
+          return null;
+        }
       }
       const rate = l2 / total;
       if (rate >= 0.8) {

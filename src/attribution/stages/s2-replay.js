@@ -111,6 +111,7 @@ export default {
     const frameResults = [];
     const allInputMetrics = [];
     const allOutputMetrics = [];
+    const replayOutputs = [];
     const stderrLines = [];
     let okFrames = 0;
     let l1Frames = 0;
@@ -270,6 +271,20 @@ export default {
           if (r.output_metrics) {
             allOutputMetrics.push(...r.output_metrics);
           }
+          if (r.output && ctx.nodeId === 'fault_manager') {
+            for (const [dataName, output] of Object.entries(r.output)) {
+              if (!output || dataName.startsWith('_')) { continue; }
+              if (output.serialized_base64) {
+                replayOutputs.push({
+                  timestamp_ns: Number(r.timestamp_ns || output.timestamp_ns || tickTime),
+                  dataName,
+                  protoType: output.proto_type || '',
+                  serializedBase64: output.serialized_base64,
+                  byteSize: output.byte_size || 0,
+                });
+              }
+            }
+          }
           if (totalFrames <= 5) {
             const gradeStr = `L${grade}`;
             const outputSummary = (r.output_metrics || []).map(
@@ -328,6 +343,7 @@ export default {
       vpmErrorLines,
       totalOutputBytes,
       avgOutputBytes,
+      replayOutputs,
     };
     // Run perf_replay: send all frames as a batch to harness for tight-loop
     // execution while perf is sampling, then stop perf.
@@ -425,6 +441,7 @@ export default {
     ctx.setEvidence('S2', 'avgOutputBytes', avgOutputBytes);
     ctx.setEvidence('S2', 'allInputMetrics', allInputMetrics);
     ctx.setEvidence('S2', 'allOutputMetrics', allOutputMetrics);
+    ctx.setEvidence('S2', 'replayOutputs', replayOutputs);
 
     const findings = evaluateRules('S2', { ...evidence, ...ctx.evidence.S2 }, ctx);
     for (const f of findings) {

@@ -68,6 +68,28 @@ static std::string statusToString(task::ExecutorStatus s) {
     }
 }
 
+static std::string base64Encode(const std::string& bytes) {
+    static const char* kChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    int val = 0;
+    int valb = -6;
+    for (uint8_t c : bytes) {
+        val = (val << 8) + c;
+        valb += 8;
+        while (valb >= 0) {
+            out.push_back(kChars[(val >> valb) & 0x3F]);
+            valb -= 6;
+        }
+    }
+    if (valb > -6) {
+        out.push_back(kChars[((val << 8) >> (valb + 8)) & 0x3F]);
+    }
+    while (out.size() % 4) {
+        out.push_back('=');
+    }
+    return out;
+}
+
 ExecutorHarness::ExecutorHarness() {
     struct sigaction sa{};
     sa.sa_handler = segvHandler;
@@ -115,6 +137,7 @@ bool ExecutorHarness::loadModule(const HarnessConfig& config, std::string& error
         }
         _executor = executor;
         _outputDataNames = config.outputDataNames;
+        _outputProtoTypes = config.outputProtoTypes;
 
         auto status = executor->initial(config.configPaths);
         if (status != task::ExecutorStatus::kReady) {
@@ -296,15 +319,36 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
 
     task::IExecutor::OutputDataType outputMap;
     std::vector<std::vector<uint8_t>> outputBuffers;
+    std::vector<std::unique_ptr<google::protobuf::Message>> outputMessages;
+    std::unordered_map<std::string, google::protobuf::Message*> outputMessageByName;
 
     if (_outputDataNames.empty()) {
         _outputDataNames.push_back("output");
     }
     for (const auto& oname : _outputDataNames) {
-        outputBuffers.emplace_back(256 * 1024, 0);
         task::IExecutor::OutputData od;
         od.name = oname;
-        od.data = outputBuffers.back().data();
+        const auto protoIt = _outputProtoTypes.find(oname);
+        if (protoIt != _outputProtoTypes.end() && !protoIt->second.empty()) {
+            auto* pool = google::protobuf::DescriptorPool::generated_pool();
+            auto* desc = pool->FindMessageTypeByName(protoIt->second);
+            auto* factory = google::protobuf::MessageFactory::generated_factory();
+            auto* prototype = desc ? factory->GetPrototype(desc) : nullptr;
+            if (prototype) {
+                auto msg = std::unique_ptr<google::protobuf::Message>(prototype->New());
+                od.data = msg.get();
+                outputMessageByName[oname] = msg.get();
+                outputMessages.push_back(std::move(msg));
+            } else {
+                std::cerr << "[Harness] output proto not found for " << oname
+                          << ": " << protoIt->second << ", fallback to raw buffer" << std::endl;
+                outputBuffers.emplace_back(256 * 1024, 0);
+                od.data = outputBuffers.back().data();
+            }
+        } else {
+            outputBuffers.emplace_back(256 * 1024, 0);
+            od.data = outputBuffers.back().data();
+        }
         // Same registration story as inputs above; use idata() for the key
         // so the executor can find the slot via NXFacility.idata(name).
         cmn::FacilityInl<cmn::Data>::Instance().push(oname);
@@ -344,14 +388,26 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
             outEntry["name"] = od.name;
             outEntry["timestamp_ns"] = Json::Value::UInt64(od.timestamp_ns);
             outEntry["has_data"] = (od.data != nullptr);
-            result.outputJson[od.name] = outEntry;
 
             OutputMetric om;
             om.name = od.name;
             om.timestampNs = od.timestamp_ns;
-            om.nonEmpty = (od.data != nullptr && od.timestamp_ns != 0);
             om.dataSize = 0;
-            if (om.nonEmpty) {
+            auto outMsgIt = outputMessageByName.find(od.name);
+            if (outMsgIt != outputMessageByName.end()) {
+                auto* msgPtr = outMsgIt->second;
+                om.dataSize = msgPtr ? msgPtr->ByteSizeLong() : 0;
+                om.nonEmpty = (om.dataSize > 0);
+                outEntry["proto_type"] = _outputProtoTypes[od.name];
+                outEntry["byte_size"] = Json::Value::UInt64(om.dataSize);
+                if (msgPtr && om.dataSize > 0) {
+                    std::string serialized;
+                    if (msgPtr->SerializeToString(&serialized)) {
+                        outEntry["serialized_base64"] = base64Encode(serialized);
+                    }
+                }
+            } else {
+                om.nonEmpty = (od.data != nullptr && od.timestamp_ns != 0);
                 try {
                     auto* msgPtr = reinterpret_cast<const google::protobuf::MessageLite*>(od.data);
                     om.dataSize = msgPtr->ByteSizeLong();
@@ -359,6 +415,7 @@ FrameResult ExecutorHarness::processFrame(const std::vector<FrameInput>& inputs)
                     om.dataSize = 1;
                 }
             }
+            result.outputJson[od.name] = outEntry;
             result.outputMetrics.push_back(std::move(om));
         }
 
@@ -478,6 +535,7 @@ std::vector<ExecutorHarness::MultiLoadResult> ExecutorHarness::loadMultiple(
             entry.executor = executor;
             entry.initialized = true;
             entry.outputDataNames = config.outputDataNames;
+            entry.outputProtoTypes = config.outputProtoTypes;
             _entries.push_back(std::move(entry));
 
             mlr.success = true;
@@ -577,13 +635,32 @@ std::vector<FrameResult> ExecutorHarness::processFrameMulti(
 
         task::IExecutor::OutputDataType outputMap;
         std::vector<std::vector<uint8_t>> outputBuffers;
+        std::vector<std::unique_ptr<google::protobuf::Message>> outputMessages;
+        std::unordered_map<std::string, google::protobuf::Message*> outputMessageByName;
         auto& onames = entry.outputDataNames;
         if (onames.empty()) { onames.push_back("output"); }
         for (const auto& oname : onames) {
-            outputBuffers.emplace_back(256 * 1024, 0);
             task::IExecutor::OutputData od;
             od.name = oname;
-            od.data = outputBuffers.back().data();
+            const auto protoIt = entry.outputProtoTypes.find(oname);
+            if (protoIt != entry.outputProtoTypes.end() && !protoIt->second.empty()) {
+                auto* pool = google::protobuf::DescriptorPool::generated_pool();
+                auto* desc = pool->FindMessageTypeByName(protoIt->second);
+                auto* factory = google::protobuf::MessageFactory::generated_factory();
+                auto* prototype = desc ? factory->GetPrototype(desc) : nullptr;
+                if (prototype) {
+                    auto msg = std::unique_ptr<google::protobuf::Message>(prototype->New());
+                    od.data = msg.get();
+                    outputMessageByName[oname] = msg.get();
+                    outputMessages.push_back(std::move(msg));
+                } else {
+                    outputBuffers.emplace_back(256 * 1024, 0);
+                    od.data = outputBuffers.back().data();
+                }
+            } else {
+                outputBuffers.emplace_back(256 * 1024, 0);
+                od.data = outputBuffers.back().data();
+            }
             cmn::FacilityInl<cmn::Data>::Instance().push(oname);
             ID oid = NXFacility.idata(oname);
             outputMap.emplace(oid, std::move(od));
@@ -613,7 +690,24 @@ std::vector<FrameResult> ExecutorHarness::processFrameMulti(
             Json::Value outEntry;
             outEntry["name"] = od.name;
             outEntry["timestamp_ns"] = Json::Value::UInt64(od.timestamp_ns);
-            bool nonEmpty = (od.data != nullptr && od.timestamp_ns != 0);
+            bool nonEmpty = false;
+            auto outMsgIt = outputMessageByName.find(od.name);
+            uint64_t protoSize = 0;
+            if (outMsgIt != outputMessageByName.end()) {
+                auto* msgPtr = outMsgIt->second;
+                protoSize = msgPtr ? msgPtr->ByteSizeLong() : 0;
+                nonEmpty = protoSize > 0;
+                outEntry["proto_type"] = entry.outputProtoTypes[od.name];
+                outEntry["byte_size"] = Json::Value::UInt64(protoSize);
+                if (msgPtr && protoSize > 0) {
+                    std::string serialized;
+                    if (msgPtr->SerializeToString(&serialized)) {
+                        outEntry["serialized_base64"] = base64Encode(serialized);
+                    }
+                }
+            } else {
+                nonEmpty = (od.data != nullptr && od.timestamp_ns != 0);
+            }
             outEntry["non_empty"] = nonEmpty;
             result.outputJson[od.name] = outEntry;
 
@@ -621,8 +715,8 @@ std::vector<FrameResult> ExecutorHarness::processFrameMulti(
             om.name = od.name;
             om.timestampNs = od.timestamp_ns;
             om.nonEmpty = nonEmpty;
-            om.dataSize = 0;
-            if (om.nonEmpty) {
+            om.dataSize = protoSize;
+            if (om.nonEmpty && outMsgIt == outputMessageByName.end()) {
                 try {
                     auto* msgPtr = reinterpret_cast<const google::protobuf::MessageLite*>(od.data);
                     om.dataSize = msgPtr->ByteSizeLong();

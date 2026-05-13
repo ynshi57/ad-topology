@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <unordered_map>
 #include <string>
 #include <vector>
 #include <json/json.h>
@@ -17,6 +18,7 @@ struct HarnessConfig {
     std::string executorClass;
     std::vector<std::string> configPaths;
     std::vector<std::string> outputDataNames;
+    std::unordered_map<std::string, std::string> outputProtoTypes;
     GradingConfig grading;
 };
 
@@ -97,6 +99,7 @@ private:
     void* _destroyFn = nullptr;
     bool _initialized = false;
     std::vector<std::string> _outputDataNames;
+    std::unordered_map<std::string, std::string> _outputProtoTypes;
     GradingConfig _gradingConfig;
 
     // Multi-executor state
@@ -106,6 +109,7 @@ private:
         void* executor = nullptr;
         bool initialized = false;
         std::vector<std::string> outputDataNames;
+        std::unordered_map<std::string, std::string> outputProtoTypes;
     };
     std::vector<ExecutorEntry> _entries;
     void unloadEntry(ExecutorEntry& entry);

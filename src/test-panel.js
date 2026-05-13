@@ -172,6 +172,15 @@ function findExecutorFlow(nodeId) {
   return null;
 }
 
+function buildOutputProtoTypes(outputDataNames) {
+  const result = {};
+  for (const name of outputDataNames || []) {
+    const proto = nexisConfig.dataTypes?.[name];
+    if (proto) { result[name] = proto; }
+  }
+  return result;
+}
+
 function detectFrameHz(nodeId) {
   const flow = findExecutorFlow(nodeId);
   if (flow) return flow.hz;
@@ -312,6 +321,7 @@ export async function createReplayTestView(container, opts) {
         if (!outputDataNames.includes(o)) { outputDataNames.push(o); }
       }
     }
+    const outputProtoTypes = buildOutputProtoTypes(outputDataNames);
 
     const session = createSession({
       nodeId,
@@ -324,6 +334,7 @@ export async function createReplayTestView(container, opts) {
       inputTopics: inputTopicLines,
       outputTopics: outputTopicLines,
       outputDataNames,
+      outputProtoTypes,
       hz: flow?.hz || DEFAULT_HZ,
       msgDataCache: msgDataCache || null,
       startTimeNs: startTimeNs || null,
@@ -554,6 +565,7 @@ export async function createReplayTestView(container, opts) {
     const outputTopics = outputTopicsEl.value.trim().split('\n').filter(l => l.trim());
     const proc = nexisConfig.processes[nodeId];
     const outputDataNames = (proc?.pub || []).map(p => p.dataName || p.topic.split('/').pop()).filter(Boolean);
+    const outputProtoTypes = buildOutputProtoTypes(outputDataNames);
     setStatus('Loading module...', '');
     ws.send(JSON.stringify({
       cmd: 'load',
@@ -564,6 +576,7 @@ export async function createReplayTestView(container, opts) {
       input_topics: inputTopics,
       output_topics: outputTopics,
       output_data_names: outputDataNames,
+      output_proto_types: outputProtoTypes,
       runtime,
     }));
   }

@@ -9,7 +9,7 @@
 
 const BACKEND_BASE = 'http://localhost:8765';
 
-export function createSession({ nodeId, topology, summary, runtime, soPath, className, configPaths, inputTopics, outputTopics, outputDataNames, hz, msgDataCache, startTimeNs, selectedExecutors }) {
+export function createSession({ nodeId, topology, summary, runtime, soPath, className, configPaths, inputTopics, outputTopics, outputDataNames, outputProtoTypes, hz, msgDataCache, startTimeNs, selectedExecutors }) {
   return {
     nodeId,
     topology,
@@ -21,6 +21,7 @@ export function createSession({ nodeId, topology, summary, runtime, soPath, clas
     inputTopics: inputTopics || [],
     outputTopics: outputTopics || [],
     outputDataNames: outputDataNames || [],
+    outputProtoTypes: outputProtoTypes || {},
     hz: hz || 20,
     backendBase: BACKEND_BASE,
     msgDataCache: msgDataCache || null,
