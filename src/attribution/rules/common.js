@@ -138,8 +138,16 @@ export const commonRules = [
   {
     id: 'L2_STDERR_ERROR',
     appliesTo: ['S2'],
-    evaluate(evidence) {
-      const errorLines = evidence.stderrErrorLines || [];
+    evaluate(evidence, ctx) {
+      let errorLines = evidence.stderrErrorLines || [];
+      if (ctx?.nodeId === 'fault_manager') {
+        errorLines = errorLines.filter(line =>
+          !line.includes('[FaultInput]') &&
+          !line.includes('[FaultPublish]') &&
+          !line.includes('[FaultConfirm]') &&
+          !line.includes('[FaultArbitrate]')
+        );
+      }
       if (errorLines.length === 0) {
         return null;
       }
@@ -155,7 +163,10 @@ export const commonRules = [
   {
     id: 'L2_VPM_RATE',
     appliesTo: ['S2'],
-    evaluate(evidence) {
+    evaluate(evidence, ctx) {
+      if (ctx?.nodeId === 'fault_manager') {
+        return null;
+      }
       const vpmErrors = evidence.vpmErrorLines || [];
       const total = evidence.totalFrames || 0;
       if (total === 0 || vpmErrors.length === 0) {

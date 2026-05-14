@@ -35,63 +35,9 @@ export function createStepper(container, stages, ctx) {
   let currentStageIdx = -1;
   let running = false;
 
-  const logLines = [];
-  let logPanelOpen = true;
-
-  const origConsoleLog = console.log;
-  const origConsoleWarn = console.warn;
-  const origConsoleError = console.error;
-
-  function captureLog(level, args) {
-    const text = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
-    if (!text.startsWith('[S')) {
-      return;
-    }
-    logLines.push({ level, text, ts: Date.now() });
-    if (logLines.length > 2000) {
-      logLines.splice(0, 500);
-    }
-    const logBody = document.getElementById('at-log-body');
-    if (logBody) {
-      const line = document.createElement('div');
-      line.className = `at-log-line at-log-${level}`;
-      line.textContent = text;
-      logBody.appendChild(line);
-      if (logBody.children.length > 2000) {
-        for (let i = 0; i < 500; i++) {
-          logBody.removeChild(logBody.firstChild);
-        }
-      }
-      logBody.scrollTop = logBody.scrollHeight;
-    }
-  }
-
-  console.log = (...args) => { origConsoleLog.apply(console, args); captureLog('info', args); };
-  console.warn = (...args) => { origConsoleWarn.apply(console, args); captureLog('warn', args); };
-  console.error = (...args) => { origConsoleError.apply(console, args); captureLog('error', args); };
-
   const el = document.createElement('div');
   el.className = 'at-stepper';
   container.appendChild(el);
-
-  function renderLogPanel() {
-    const panel = el.querySelector('#at-log-panel');
-    if (!panel) {
-      return;
-    }
-    const body = panel.querySelector('#at-log-body');
-    if (!body) {
-      return;
-    }
-    body.innerHTML = '';
-    for (const entry of logLines) {
-      const line = document.createElement('div');
-      line.className = `at-log-line at-log-${entry.level}`;
-      line.textContent = entry.text;
-      body.appendChild(line);
-    }
-    body.scrollTop = body.scrollHeight;
-  }
 
   function render() {
     el.innerHTML = `
@@ -111,15 +57,6 @@ export function createStepper(container, stages, ctx) {
         <button class="at-btn" id="at-rerun-failed" ${running || !ctx.className ? 'disabled' : ''}>Rerun Failed</button>
       </div>
       <div class="at-stages-area" id="at-stages-area"></div>
-      <div class="at-log-panel ${logPanelOpen ? 'at-log-open' : ''}" id="at-log-panel">
-        <div class="at-log-header" id="at-log-toggle">
-          <span class="at-log-title">Console</span>
-          <span class="at-log-badge">${logLines.length}</span>
-          <span class="at-log-arrow">${logPanelOpen ? '\u25BC' : '\u25B2'}</span>
-          <button class="at-log-clear" id="at-log-clear">Clear</button>
-        </div>
-        <div class="at-log-body" id="at-log-body"></div>
-      </div>
     `;
 
     const stagesArea = el.querySelector('#at-stages-area');
@@ -176,34 +113,6 @@ export function createStepper(container, stages, ctx) {
       });
     });
 
-    el.querySelector('#at-log-toggle')?.addEventListener('click', (e) => {
-      if (e.target.id === 'at-log-clear') {
-        return;
-      }
-      logPanelOpen = !logPanelOpen;
-      const panel = el.querySelector('#at-log-panel');
-      if (panel) {
-        panel.classList.toggle('at-log-open', logPanelOpen);
-      }
-      const arrow = el.querySelector('.at-log-arrow');
-      if (arrow) {
-        arrow.textContent = logPanelOpen ? '\u25BC' : '\u25B2';
-      }
-    });
-
-    el.querySelector('#at-log-clear')?.addEventListener('click', () => {
-      logLines.length = 0;
-      const body = el.querySelector('#at-log-body');
-      if (body) {
-        body.innerHTML = '';
-      }
-      const badge = el.querySelector('.at-log-badge');
-      if (badge) {
-        badge.textContent = '0';
-      }
-    });
-
-    renderLogPanel();
   }
 
   async function runStage(stage) {
@@ -296,9 +205,6 @@ export function createStepper(container, stages, ctx) {
     runSingleStage,
     getState: () => ({ ...state }),
     destroy: () => {
-      console.log = origConsoleLog;
-      console.warn = origConsoleWarn;
-      console.error = origConsoleError;
       el.remove();
     },
   };

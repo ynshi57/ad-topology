@@ -147,24 +147,33 @@ export default {
 function buildFaultManagerDiff(ctx) {
   const replayOutputs = (ctx.getEvidence('S2', 'replayOutputs') || [])
     .filter(o => o.dataName === 'fault_process_data' && o.serializedBase64);
-  const recordedEntries = ctx.msgDataCache?.['/nexis/security/alarm/fault_process'] || [];
+  const recordedTopic = '/nexis/security/alarm/fault_process';
+  const recordedEntries = ctx.msgDataCache?.[recordedTopic] || [];
 
   if (replayOutputs.length === 0) {
-    return { status: 'warn', reason: 'No replay fault_process_data outputs captured', replayCount: 0, recordedCount: recordedEntries.length };
+    return { status: 'warn', reason: 'No replay fault_process_data outputs captured', replayCount: 0, recordedCount: recordedEntries.length, recordedTopic };
   }
   if (recordedEntries.length === 0) {
-    return { status: 'warn', reason: 'Recorded /nexis/security/alarm/fault_process not found in mcap', replayCount: replayOutputs.length, recordedCount: 0 };
+    return { status: 'warn', reason: 'Recorded /nexis/security/alarm/fault_process not found in mcap', replayCount: replayOutputs.length, recordedCount: 0, recordedTopic };
   }
 
-  const recorded = recordedEntries.map(e => ({
-    timestamp_ns: Number(e.logTime ?? e.receiveTime ?? ((ctx.startTimeNs || 0n) + BigInt(Math.round((e.sec || 0) * 1e9)))),
-    summary: summarizeFaultProcess(e.decoded || decodeMessage(e.schemaId, e.data)),
-  })).filter(e => e.summary);
+  const recorded = recordedEntries.map(e => {
+    const full = e.decoded || decodeMessage(e.schemaId, e.data);
+    return {
+      timestamp_ns: Number(e.logTime ?? e.receiveTime ?? ((ctx.startTimeNs || 0n) + BigInt(Math.round((e.sec || 0) * 1e9)))),
+      summary: summarizeFaultProcess(full),
+      full,
+    };
+  }).filter(e => e.summary);
 
-  const replay = replayOutputs.map(e => ({
-    timestamp_ns: Number(e.timestamp_ns || 0),
-    summary: summarizeFaultProcess(decodeMessageByType(e.protoType, base64ToUint8(e.serializedBase64))),
-  })).filter(e => e.summary);
+  const replay = replayOutputs.map(e => {
+    const full = decodeMessageByType(e.protoType, base64ToUint8(e.serializedBase64));
+    return {
+      timestamp_ns: Number(e.timestamp_ns || 0),
+      summary: summarizeFaultProcess(full),
+      full,
+    };
+  }).filter(e => e.summary);
 
   const toleranceNs = 100_000_000; // 100ms
   let matchedCount = 0;
@@ -191,6 +200,8 @@ function buildFaultManagerDiff(ctx) {
           delta_ms: Math.round((nearest.timestamp_ns - r.timestamp_ns) / 1e6),
           replay: r.summary,
           recorded: nearest.summary,
+          replayFull: r.full,
+          recordedFull: nearest.full,
         });
       }
     }
@@ -199,12 +210,58 @@ function buildFaultManagerDiff(ctx) {
   const status = matchedCount === 0 ? 'warn' : (mismatchCount === 0 ? 'passed' : 'failed');
   return {
     status,
+    recordedTopic,
     replayCount: replay.length,
     recordedCount: recorded.length,
     matchedCount,
     mismatchCount,
+    replaySummary: summarizeReplayOutputs(replay),
+    recordedSummary: summarizeReplayOutputs(recorded),
+    replaySamples: sampleFaultOutputs(replay),
+    recordedSamples: sampleFaultOutputs(recorded),
     mismatches,
   };
+}
+
+function summarizeReplayOutputs(replay) {
+  const byState = new Map();
+  const byCode = new Map();
+  let firstError = null;
+  for (const row of replay) {
+    const s = row.summary;
+    const stateKey = `${s.flag}|items=${s.itemSize}`;
+    byState.set(stateKey, (byState.get(stateKey) || 0) + 1);
+    if (s.itemSize > 0) {
+      const codeKey = `${s.code}|va=${s.vehicleAction}|sd=${s.sdAction}|rec=${s.recoredAction}`;
+      byCode.set(codeKey, (byCode.get(codeKey) || 0) + 1);
+      if (!firstError && s.flag === 'SYSTEM_ERROR') {
+        firstError = { timestamp_ns: row.timestamp_ns, summary: s, full: row.full };
+      }
+    }
+  }
+  const toRows = (m) => [...m.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count);
+  return {
+    total: replay.length,
+    byState: toRows(byState),
+    byCode: toRows(byCode),
+    firstError,
+  };
+}
+
+function sampleFaultOutputs(rows) {
+  const samples = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const s = row.summary;
+    const key = `${s.flag}|${s.itemSize}|${s.code}|${s.vehicleAction}|${s.sdAction}|${s.recoredAction}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    samples.push({ timestamp_ns: row.timestamp_ns, summary: s, full: row.full });
+    if (samples.length >= 5) break;
+  }
+  return samples;
 }
 
 function summarizeFaultProcess(fp) {
@@ -247,23 +304,57 @@ function base64ToUint8(s) {
 function renderFaultManagerDiff(diff) {
   if (!diff) return '';
   const cls = diff.status === 'passed' ? 'at-health-ok' : diff.status === 'warn' ? 'at-health-warn' : 'at-health-bad';
+  const replayBlock = renderFaultOutputBlock('Replay fault_process_data', diff.replaySummary, diff.replaySamples);
+  const recordedBlock = renderFaultOutputBlock(`Recorded ${diff.recordedTopic || '/nexis/security/alarm/fault_process'}`, diff.recordedSummary, diff.recordedSamples);
   const mismatchRows = (diff.mismatches || []).slice(0, 5).map(m => `
     <div class="at-kv"><span>t=${esc(m.timestamp_ns)} delta=${esc(m.delta_ms)}ms</span>
       <strong>replay=${esc(JSON.stringify(m.replay))}</strong>
       <span>recorded=${esc(JSON.stringify(m.recorded))}</span>
     </div>
+    <details class="at-other-outputs">
+      <summary class="at-note">full FaultProcess replay vs recorded</summary>
+      <div class="at-kv"><span>replay full</span></div>
+      <pre class="at-pre">${esc(JSON.stringify(m.replayFull, null, 2))}</pre>
+      <div class="at-kv"><span>recorded full</span></div>
+      <pre class="at-pre">${esc(JSON.stringify(m.recordedFull, null, 2))}</pre>
+    </details>
   `).join('');
   return `
     <div class="at-section">
       <div class="at-health-row ${cls}">
         <span class="at-health-indicator">${diff.status === 'passed' ? '●' : '⚠'}</span>
-        <span class="at-health-topic">fault_manager semantic diff</span>
-        <span class="at-health-hz">matched ${diff.matchedCount || 0}/${diff.replayCount || 0}</span>
-        <span class="at-health-count">mismatch ${diff.mismatchCount || 0}</span>
+        <span class="at-health-topic">fault_manager output topic summary</span>
+        <span class="at-health-hz">replay ${diff.replayCount || 0} / recorded ${diff.recordedCount || 0}</span>
+        <span class="at-health-count">matched ${diff.matchedCount || 0}, mismatch ${diff.mismatchCount || 0}</span>
       </div>
+      ${replayBlock}
+      ${recordedBlock}
       ${diff.reason ? `<div class="at-note">${esc(diff.reason)}</div>` : ''}
       ${mismatchRows}
     </div>
+  `;
+}
+
+function renderFaultOutputBlock(title, summary = {}, samples = []) {
+  const stateRows = (summary.byState || []).slice(0, 8).map(r =>
+    `<div class="at-kv"><span>${esc(r.key)}</span><strong>${r.count}</strong></div>`
+  ).join('');
+  const codeRows = (summary.byCode || []).slice(0, 12).map(r =>
+    `<div class="at-kv"><span>${esc(r.key)}</span><strong>${r.count}</strong></div>`
+  ).join('');
+  const sampleRows = (samples || []).map((s, idx) => `
+    <details class="at-other-outputs">
+      <summary class="at-note">sample ${idx + 1}: t=${esc(s.timestamp_ns)} ${esc(JSON.stringify(s.summary))}</summary>
+      <pre class="at-pre">${esc(JSON.stringify(s.full, null, 2))}</pre>
+    </details>
+  `).join('');
+  return `
+    <details open class="at-other-outputs">
+      <summary class="at-note">${esc(title)} (${summary.total || 0} frames)</summary>
+      ${stateRows}
+      ${codeRows}
+      ${sampleRows}
+    </details>
   `;
 }
 
