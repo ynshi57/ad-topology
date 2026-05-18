@@ -16,6 +16,7 @@ import { createCameraPanel, buildCameraIndex } from './camera-panel.js';
 import { isCameraVideoTopic, isVideoStreamSchema } from './videostream-decoder.js';
 import { loadYoloSidecar } from './yolo-overlay.js';
 import { createLogPane } from './log-pane.js';
+import { loadVqaSidecar } from './vqa-overlay.js';
 
 const app = document.getElementById('app');
 
@@ -38,6 +39,7 @@ let sharedTopology = null;
 let sharedStartNs = null;
 let sharedDesignHz = {};
 let sharedYoloIndex = null;
+let sharedVqaIndex = null;
 let sharedMcapPath = null;
 
 // Optimized message index
@@ -674,13 +676,19 @@ async function handleFiles(files, mcapServerPath) {
     updateLoadingProgress(55, 'Initializing camera decoder...');
     await initCameraDecoders(sharedSummary.readers);
 
-    updateLoadingProgress(60, 'Checking for YOLO sidecar...');
+    updateLoadingProgress(60, 'Checking for YOLO/VQA sidecars...');
     sharedYoloIndex = null;
+    sharedVqaIndex = null;
     if (mcapServerPath) {
       try {
         sharedYoloIndex = await loadYoloSidecar(mcapServerPath);
       } catch (err) {
         console.warn('YOLO sidecar load failed (non-fatal):', err);
+      }
+      try {
+        sharedVqaIndex = await loadVqaSidecar(mcapServerPath);
+      } catch (err) {
+        console.warn('VQA sidecar load failed (non-fatal):', err);
       }
     }
 
@@ -908,10 +916,14 @@ function setupCameraPanel() {
   currentCameraPanel = createCameraPanel(cameraArea, {
     cameraIndex,
     yoloIndex: sharedYoloIndex,
+    vqaIndex: sharedVqaIndex,
     startTimeNs: sharedStartNs,
     mcapPath: sharedMcapPath,
     onYoloIndexChange: (idx) => {
       sharedYoloIndex = idx;
+    },
+    onVqaIndexChange: (idx) => {
+      sharedVqaIndex = idx;
     },
   });
 }
@@ -1294,6 +1306,7 @@ function cleanupAll() {
   foxgloveChannels = null; foxgloveDataCache = null; foxgloveCursors = {};
   cameraIndex = null;
   sharedYoloIndex = null;
+  sharedVqaIndex = null;
   sharedMcapPath = null;
   show3D = false;
   showCamera = false;

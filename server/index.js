@@ -184,6 +184,11 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/camera-vqa-detect' && req.method === 'POST') {
+    await handleCameraVqaDetect(req, res);
+    return;
+  }
+
   if ((req.url === '/file' || req.url?.startsWith('/file?')) && req.method === 'GET') {
     handleFileDownload(req, res);
     return;
@@ -616,6 +621,32 @@ function handleListMcaps(_req, res) {
           break;
         } catch (err) {
           console.warn(`[list-mcaps] cannot read sidecar ${sidecarPath}:`, err.message);
+        }
+      }
+      g.hasVqaSidecar = false;
+      g.vqaSidecarSummary = null;
+      g.vqaSidecarPath = null;
+      const vqaCandidates = [
+        `${MCAP_DIR}/${g.stem}.camera.vqa.json`,
+        `${MCAP_DIR}/${g.stem}.vqa.json`,
+        `${MCAP_DIR}/${g.stem}.lite.camera.vqa.json`,
+      ];
+      for (const vqaPath of vqaCandidates) {
+        try {
+          if (!existsSync(vqaPath)) { continue; }
+          const sc = JSON.parse(readFileSync(vqaPath, 'utf8'));
+          g.hasVqaSidecar = true;
+          g.vqaSidecarPath = vqaPath;
+          g.vqaSidecarSummary = {
+            model: sc.model,
+            runtime: sc.runtime?.name || sc.runtime?.mode,
+            frames: (sc.frames || []).length,
+            cameraStateCounts: sc.summary?.camera_state_counts || {},
+            schemaInvalidFrames: sc.summary?.schema_invalid_frames || 0,
+          };
+          break;
+        } catch (err) {
+          console.warn(`[list-mcaps] cannot read VQA sidecar ${vqaPath}:`, err.message);
         }
       }
       // Stable per-variant order: camera, lite, single
@@ -1287,10 +1318,12 @@ function handleFileDownload(req, res) {
     const isMcap = lower.endsWith('.mcap');
     const isReport = lower.endsWith('.mcap.report.json');
     const isYoloSidecar = lower.endsWith('.yolo.json');
-    if (!isMcap && !isReport && !isYoloSidecar) {
+    const isVqaSidecar = lower.endsWith('.camera.vqa.json')
+      || lower.endsWith('.camera.vqa.report.json');
+    if (!isMcap && !isReport && !isYoloSidecar && !isVqaSidecar) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        error: 'only .mcap, .mcap.report.json, .yolo.json files may be served',
+        error: 'only .mcap, .mcap.report.json, .yolo.json, .camera.vqa.json files may be served',
       }));
       return;
     }
@@ -1300,7 +1333,7 @@ function handleFileDownload(req, res) {
       return;
     }
     const stat = statSync(resolved);
-    const contentType = (isReport || isYoloSidecar)
+    const contentType = (isReport || isYoloSidecar || isVqaSidecar)
         ? 'application/json'
         : 'application/octet-stream';
     res.writeHead(200, {
@@ -1544,6 +1577,7 @@ async function handleRecordToMcap(req, res) {
 // ---------------------------------------------------------------------------
 
 const YOLO_DETECT_SCRIPT = join(__dirname, '..', 'tools', 'yolo_detect', 'detect.py');
+const CAMERA_VQA_DETECT_SCRIPT = join(__dirname, '..', 'tools', 'camera_vqa', 'detect.py');
 const ALLOWED_YOLO_MODELS = new Set(['yolo11n', 'yolo11s', 'yolo11m', 'yolo11l', 'yolo11x']);
 
 async function handleYoloDetect(req, res) {
@@ -1704,6 +1738,202 @@ async function handleYoloDetect(req, res) {
         writeJsonLine(res, {
           type: 'log', stream: 'stderr',
           line: `failed to read sidecar: ${err.message}`,
+        });
+      }
+    }
+    writeJsonLine(res, {
+      type: 'done',
+      ok: code === 0 && !killed && outputExists,
+      killed,
+      exitCode: code,
+      signal,
+      mcapPath,
+      outputPath,
+      outputExists,
+      outputSizeBytes: outputExists ? statSync(outputPath).size : 0,
+      summary,
+    });
+    res.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// /camera-vqa-detect endpoint -- spawn tools/camera_vqa/detect.py against an mcap.
+// ---------------------------------------------------------------------------
+
+function deriveCameraVqaOutputPath(mcapPath) {
+  const base = mcapPath.toLowerCase().endsWith('.mcap')
+    ? mcapPath.slice(0, -5)
+    : mcapPath;
+  return base.endsWith('.camera') ? `${base}.vqa.json` : `${base}.camera.vqa.json`;
+}
+
+async function handleCameraVqaDetect(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req, 64 * 1024);
+  } catch (err) {
+    res.writeHead(err.status || 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+
+  const inputPathRaw = payload.mcapPath;
+  if (typeof inputPathRaw !== 'string' || !inputPathRaw) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'mcapPath is required' }));
+    return;
+  }
+  if (!isAbsolute(inputPathRaw)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'mcapPath must be absolute' }));
+    return;
+  }
+  const mcapPath = pathResolve(inputPathRaw);
+  if (!existsSync(mcapPath) || !statSync(mcapPath).isFile()) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `mcap not found: ${mcapPath}` }));
+    return;
+  }
+  if (!existsSync(CAMERA_VQA_DETECT_SCRIPT)) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'camera_vqa detect.py missing',
+      expectedAt: CAMERA_VQA_DETECT_SCRIPT,
+    }));
+    return;
+  }
+
+  const runtime = ['fixture', 'external', 'http', 'precomputed'].includes(payload.runtime)
+    ? payload.runtime
+    : 'fixture';
+  const sampleIntervalRaw = Number(payload.sampleIntervalSec);
+  const sampleInterval = Number.isFinite(sampleIntervalRaw)
+    ? Math.max(0.1, Math.min(3600, sampleIntervalRaw))
+    : 10;
+  const maxSamplesRaw = Number(payload.maxSamples);
+  const maxSamples = Number.isInteger(maxSamplesRaw) && maxSamplesRaw > 0
+    ? Math.min(maxSamplesRaw, 1000)
+    : 8;
+  const questions = Array.isArray(payload.questions)
+    ? payload.questions.filter(q => typeof q === 'string' && q.trim()).join(',')
+    : (typeof payload.questions === 'string' && payload.questions.trim()
+      ? payload.questions
+      : 'camera_state,exposure_fault,function_impact');
+  const outputPath = typeof payload.outputPath === 'string' && payload.outputPath
+    ? pathResolve(payload.outputPath)
+    : deriveCameraVqaOutputPath(mcapPath);
+
+  const args = [
+    CAMERA_VQA_DETECT_SCRIPT,
+    '--mcap', mcapPath,
+    '--runtime', runtime,
+    '--sample-interval-sec', String(sampleInterval),
+    '--max-samples', String(maxSamples),
+    '--questions', questions,
+    '--output', outputPath,
+  ];
+  if (typeof payload.runtimeCommand === 'string' && payload.runtimeCommand) {
+    args.push('--runtime-command', payload.runtimeCommand);
+  }
+  if (typeof payload.runtimeUrl === 'string' && payload.runtimeUrl) {
+    args.push('--runtime-url', payload.runtimeUrl);
+  }
+  if (typeof payload.precomputedPath === 'string' && payload.precomputedPath) {
+    args.push('--precomputed', payload.precomputedPath);
+  }
+
+  const pythonBin = process.env.VQA_PYTHON || process.env.YOLO_PYTHON || 'python3';
+  console.log('[camera-vqa-detect] spawn:', pythonBin, args.join(' '));
+
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    'X-Accel-Buffering': 'no',
+  });
+  writeJsonLine(res, {
+    type: 'start',
+    mcapPath,
+    outputPath,
+    runtime,
+    questions,
+    sampleIntervalSec: sampleInterval,
+    maxSamples,
+    pythonBin,
+  });
+
+  let child;
+  try {
+    child = spawn(pythonBin, args, {
+      cwd: join(__dirname, '..'),
+      env: {
+        ...ENV,
+        PYTHONUNBUFFERED: '1',
+        PYTHONPATH: [join(__dirname, '..'), process.env.PYTHONPATH || ''].filter(Boolean).join(':'),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    writeJsonLine(res, { type: 'done', ok: false, error: err.message });
+    res.end();
+    return;
+  }
+
+  let killed = false;
+  const onClientClose = () => {
+    killed = true;
+    if (child && !child.killed) {
+      child.kill('SIGTERM');
+    }
+  };
+  req.on('close', onClientClose);
+
+  const streamLines = (stream, label) => {
+    let buf = '';
+    stream.on('data', (chunk) => {
+      buf += chunk.toString();
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (line.length > 0) {
+          writeJsonLine(res, { type: 'log', stream: label, line });
+        }
+      }
+    });
+    stream.on('end', () => {
+      if (buf.length > 0) {
+        writeJsonLine(res, { type: 'log', stream: label, line: buf });
+      }
+    });
+  };
+  streamLines(child.stdout, 'stdout');
+  streamLines(child.stderr, 'stderr');
+
+  child.on('error', (err) => {
+    writeJsonLine(res, { type: 'done', ok: false, error: err.message });
+    res.end();
+  });
+
+  child.on('close', (code, signal) => {
+    req.removeListener('close', onClientClose);
+    const outputExists = existsSync(outputPath);
+    let summary = null;
+    if (outputExists) {
+      try {
+        const sc = JSON.parse(readFileSync(outputPath, 'utf8'));
+        summary = {
+          model: sc.model,
+          runtime: sc.runtime?.name || sc.runtime?.mode,
+          frames: (sc.frames || []).length,
+          cameraStateCounts: sc.summary?.camera_state_counts || {},
+          schemaInvalidFrames: sc.summary?.schema_invalid_frames || 0,
+          generatedAt: sc.generated_at,
+        };
+      } catch (err) {
+        writeJsonLine(res, {
+          type: 'log',
+          stream: 'stderr',
+          line: `failed to read VQA sidecar: ${err.message}`,
         });
       }
     }

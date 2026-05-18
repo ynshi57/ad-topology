@@ -12,6 +12,8 @@ import { parseBevMap, parseOccResult, expandOccCells, isBevMapSchema, isOccResul
 import { renderBev, createBevViewState, attachPanZoom } from './bev-renderer.js';
 import { findFrameAt, drawBboxesOnCanvas, loadYoloSidecar, getClassColor } from './yolo-overlay.js';
 import { runYoloDetect, summarizeLogLine } from './yolo-runner.js';
+import { createVqaPanel } from './vqa-panel.js';
+import { findVqaFrameAt, getCameraState } from './vqa-overlay.js';
 
 const AVIF_SUPPORT = checkAvifSupport();
 
@@ -104,9 +106,11 @@ function makeVehicleSvg() {
 export function createCameraPanel(container, opts) {
   const { cameraIndex } = opts;
   let yoloIndex = opts.yoloIndex || null;
+  let vqaIndex = opts.vqaIndex || null;
   const startTimeNs = Number(opts.startTimeNs || 0);
   const mcapPath = opts.mcapPath || null;
   const onYoloIndexChange = opts.onYoloIndexChange || (() => {});
+  const onVqaIndexChange = opts.onVqaIndexChange || (() => {});
   const { cameras, frameIndex, idrIndex, msgDataCache } = cameraIndex;
 
   if (cameras.length === 0) {
@@ -332,6 +336,14 @@ export function createCameraPanel(container, opts) {
 
     // ----- Bottom: YOLO panel (always visible across tabs) -----
     const yoloPanel = buildYoloPanel();
+    const vqaPanel = createVqaPanel({
+      mcapPath,
+      vqaIndex,
+      onVqaIndexChange: (idx) => {
+        vqaIndex = idx;
+        onVqaIndexChange(idx);
+      },
+    });
     const splitterH = document.createElement('div');
     splitterH.className = 'cam-splitter-horizontal';
     splitterH.title = 'Drag to resize';
@@ -381,6 +393,7 @@ export function createCameraPanel(container, opts) {
     cameraBevWrap.appendChild(tabContent);
     cameraBevWrap.appendChild(splitterH);
     cameraBevWrap.appendChild(yoloPanel);
+    cameraBevWrap.appendChild(vqaPanel.el);
 
     gridContainer.appendChild(cameraBevWrap);
     gridContainer.appendChild(focusGrid);
@@ -1255,6 +1268,7 @@ export function createCameraPanel(container, opts) {
       <canvas class="cam-cell-yolo-overlay" id="cam-yolo-${id}"></canvas>
       <div class="cam-cell-noframe" id="cam-noframe-${id}">No frame</div>
       <div class="cam-cell-zone-badge">${esc(pos.label)}</div>
+      <div class="cam-cell-vqa-badge" id="cam-vqa-${id}" style="display:none">VQA --</div>
     `;
     cell.addEventListener('click', () => {
       showFloatingPreview(cam);
@@ -1536,6 +1550,7 @@ export function createCameraPanel(container, opts) {
     } else {
       clearYoloOverlays();
     }
+    updateVqaBadges(currentSec);
 
     bevDataCache.currentSec = currentSec;
     bevDataCache.yoloIndex = yoloIndex;
@@ -1561,6 +1576,30 @@ export function createCameraPanel(container, opts) {
     if (fOverlay) {
       const ctx = fOverlay.getContext('2d');
       ctx.clearRect(0, 0, fOverlay.width, fOverlay.height);
+    }
+  }
+
+  function updateVqaBadges(currentSec) {
+    const frame = findVqaFrameAt(vqaIndex, currentSec, startTimeNs);
+    for (const cam of cameras) {
+      const id = cssId(cam.videoTopic);
+      const badge = document.getElementById(`cam-vqa-${id}`);
+      if (!badge) { continue; }
+      const state = getCameraState(frame, cam.name);
+      if (!state) {
+        badge.style.display = 'none';
+        badge.className = 'cam-cell-vqa-badge';
+        badge.textContent = 'VQA --';
+        continue;
+      }
+      const visibility = state.visibility_state || 'unknown';
+      const severity = state.severity || 'unknown';
+      const confNum = Number(state.confidence);
+      const conf = Number.isFinite(confNum) ? ` ${(confNum * 100).toFixed(0)}%` : '';
+      badge.style.display = 'block';
+      badge.className = `cam-cell-vqa-badge state-${visibility} sev-${severity}`;
+      badge.textContent = `${visibility}${conf}`;
+      badge.title = `VQA camera health: ${visibility}, severity=${severity}${conf}`;
     }
   }
 
