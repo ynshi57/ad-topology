@@ -39,4 +39,8 @@ def load_runtime(name: str, config: Dict) -> CameraVqaRuntime:
         from .precomputed import PrecomputedRuntime
 
         return PrecomputedRuntime(config)
+    if name == "local_model":
+        from .local_model import LocalModelRuntime
+
+        return LocalModelRuntime(config)
     raise ValueError(f"unknown camera VQA runtime: {name}")

@@ -110,6 +110,11 @@ def _runtime_config(args) -> Dict:
         cfg["url"] = args.runtime_url
     if args.precomputed:
         cfg["path"] = args.precomputed
+    if args.model_path:
+        cfg["model_path"] = args.model_path
+    if args.device:
+        cfg["device"] = args.device
+    cfg["stability_runs"] = args.stability_runs
     cfg["timeout_sec"] = args.timeout_sec
     return cfg
 
@@ -186,14 +191,17 @@ def parse_args(argv=None):
     parser.add_argument("--mcap", required=True, help="Input camera.mcap path")
     parser.add_argument("--output", help="Output *.camera.vqa.json path")
     parser.add_argument("--runtime", default="fixture",
-                        choices=["fixture", "external", "http", "precomputed"])
+                        choices=["fixture", "external", "http", "precomputed", "local_model"])
     parser.add_argument("--runtime-command", help="External runtime command")
     parser.add_argument("--runtime-url", help="HTTP runtime URL")
     parser.add_argument("--precomputed", help="Precomputed runtime JSON path")
+    parser.add_argument("--model-path", help="Local Camera VQA model.pt path")
+    parser.add_argument("--device", default="cpu", help="Local model device")
     parser.add_argument("--questions", default=",".join(DEFAULT_QUESTIONS))
     parser.add_argument("--sample-interval-sec", type=float, default=10.0)
     parser.add_argument("--max-samples", type=int, default=8)
     parser.add_argument("--timeout-sec", type=float, default=120.0)
+    parser.add_argument("--stability-runs", type=int, default=3)
     return parser.parse_args(argv)
 
 

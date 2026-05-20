@@ -223,6 +223,7 @@ export function createCameraPanel(container, opts) {
       <button class="cam-tab active" data-tab="cameras">Cameras</button>
       <button class="cam-tab" data-tab="fisheye">Fisheye</button>
       <button class="cam-tab" data-tab="bev">BEV</button>
+      <button class="cam-tab" data-tab="vqa">VQA Sheet</button>
     `;
 
     // ----- Tab content container (resizable; sibling of YOLO panel) -----
@@ -249,6 +250,10 @@ export function createCameraPanel(container, opts) {
     bevPane.className = 'cam-tab-pane cam-tab-bev';
     const bevArea = buildBevArea();
     bevPane.appendChild(bevArea);
+
+    // ----- VQA Sheet tab: model/data/label diagnostics as a full sheet -----
+    const vqaPane = document.createElement('div');
+    vqaPane.className = 'cam-tab-pane cam-tab-vqa';
 
     // Distribute cells: regular cameras into spatial grid (top-down vehicle
     // layout via grid-template-areas), fisheye into a separate 2x2 grid.
@@ -339,11 +344,14 @@ export function createCameraPanel(container, opts) {
     const vqaPanel = createVqaPanel({
       mcapPath,
       vqaIndex,
+      cameras,
       onVqaIndexChange: (idx) => {
         vqaIndex = idx;
         onVqaIndexChange(idx);
       },
     });
+    vqaPane.appendChild(vqaPanel.el);
+    tabContent.appendChild(vqaPane);
     const splitterH = document.createElement('div');
     splitterH.className = 'cam-splitter-horizontal';
     splitterH.title = 'Drag to resize';
@@ -393,7 +401,6 @@ export function createCameraPanel(container, opts) {
     cameraBevWrap.appendChild(tabContent);
     cameraBevWrap.appendChild(splitterH);
     cameraBevWrap.appendChild(yoloPanel);
-    cameraBevWrap.appendChild(vqaPanel.el);
 
     gridContainer.appendChild(cameraBevWrap);
     gridContainer.appendChild(focusGrid);

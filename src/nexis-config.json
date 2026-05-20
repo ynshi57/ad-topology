@@ -1,5 +1,23 @@
 {
   "processes": {
+    "after_sale_calibration": {
+      "domain": "system",
+      "layer": 5,
+      "runtime": "nexis",
+      "pub": [],
+      "sub": [
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus",
+          "dataName": "canbus_pub_wheel_speed"
+        },
+        {
+          "topic": "/sensor/novatel/Imu",
+          "proto": "neodrive.global.drivers.gnss.Imu",
+          "dataName": "imu_data"
+        }
+      ]
+    },
     "common_manager": {
       "domain": "system",
       "layer": 5,
@@ -50,18 +68,23 @@
           "topic": "/planning/e2e_result",
           "proto": "",
           "dataName": "e2e_result"
+        },
+        {
+          "topic": "/planning/e2e_monitor",
+          "proto": "",
+          "dataName": "e2e_monitor"
         }
       ],
       "sub": [
         {
           "topic": "/pnc/prediction",
           "proto": "",
-          "dataName": "prediction_obstacles"
+          "dataName": "model_infer_prediction_obstacles"
         },
         {
           "topic": "/perception/occ_infer",
           "proto": "",
-          "dataName": "occ_infer"
+          "dataName": "e2e_occ_infer"
         },
         {
           "topic": "/perception/occ_fusion_map",
@@ -82,6 +105,19 @@
           "topic": "/maprouter/guideinfo",
           "proto": "",
           "dataName": "guideinfo"
+        }
+      ]
+    },
+    "factory_calibration": {
+      "domain": "system",
+      "layer": 5,
+      "runtime": "nexis",
+      "pub": [],
+      "sub": [
+        {
+          "topic": "/sensor/novatel/Imu",
+          "proto": "neodrive.global.drivers.gnss.Imu",
+          "dataName": "imu_data"
         }
       ]
     },
@@ -458,6 +494,26 @@
           "dataName": "router_output"
         },
         {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": "",
+          "dataName": "gnss_data"
+        },
+        {
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus",
+          "dataName": "canbus_pub_wheel_speed"
+        },
+        {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed",
+          "dataName": "map_router_odom"
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": "neodrive.global.status.Chassis",
+          "dataName": "canbus_pub_chassis"
+        },
+        {
           "topic": "/pnc/prediction",
           "proto": "",
           "dataName": "prediction_obstacles"
@@ -567,6 +623,11 @@
           "topic": "/state_machine/transition",
           "proto": "neodrive.global.state_machine.GlobalStateMachine",
           "dataName": "cb_state_machine"
+        },
+        {
+          "topic": "/pnc/pnc_state",
+          "proto": "neodrive.global.planning.PlanningState",
+          "dataName": "cb_pnc_state"
         }
       ]
     },
@@ -869,6 +930,11 @@
           "topic": "/localization/100hz/inspvax_gnss_msf_utm",
           "proto": "neodrive.global.openapi.ld.PilotState",
           "dataName": "fsm_utm_pose"
+        },
+        {
+          "topic": "/nexis/security/alarm/fault_process",
+          "proto": "nexis.security.alarm.FaultProcess",
+          "dataName": "fsm_fault_process"
         },
         {
           "topic": "/system/system_monitor",
@@ -1214,6 +1280,8 @@
     "local_alarm_state": "nexis.security.alarm.AlarmStateDataList",
     "local_alarm_state_fault": "nexis.security.alarm.AlarmStateDataList",
     "fault_process_data": "nexis.security.alarm.FaultProcess",
+    "imu_data": "neodrive.global.drivers.gnss.Imu",
+    "whee_speed_data": "neodrive.global.canbus.PbCarStatus",
     "can_car_status": "neolix.nexis.ds.CarStatus",
     "canbus_pub_chassis": "neodrive.global.status.Chassis",
     "canbus_pub_wheel_speed": "neodrive.global.canbus.PbCarStatus",
@@ -1225,6 +1293,7 @@
     "can_cmd_eps": "CanFrame",
     "can_cmd_park": "CanFrame",
     "can_cmd_light": "CanFrame",
+    "cb_pnc_state": "neodrive.global.planning.PlanningState",
     "cb_aeb_cmd": "neodrive.global.planning.AebCmd",
     "cb_pnc_control": "neodrive.global.control.ControlCommand",
     "cb_patrol_discode": "neodrive.global.patrol.DisCode",
@@ -1307,6 +1376,7 @@
     "fsm_control": "neodrive.global.control.ControlCommand",
     "fsm_control_state": "neodrive.global.state_machine.FsmReport",
     "fsm_utm_pose": "neodrive.global.openapi.ld.PilotState",
+    "fsm_fault_process": "nexis.security.alarm.FaultProcess",
     "fsm_sys_monitor": "nexis.system.monitor.SystemMonitor",
     "fsm_vlm_response": "neodrive.global.openapi.ld.VlmResponse",
     "fsm_pilot_state": "neodrive.global.openapi.ld.PilotState",
@@ -1333,6 +1403,7 @@
   "topicToPublisher": {
     "/nexis/security/alarm/alarm_state_data": "system_monitor",
     "/planning/e2e_result": "model_infer",
+    "/planning/e2e_monitor": "e2e_planner",
     "/nexis/security/alarm/fault_process": "fault_manager",
     "/mapping/lidar_freespace": "model_infer",
     "/localization/100hz/localization_vehicle_speed": "location",
@@ -1404,24 +1475,33 @@
     "/mapping/lidar_freespace_3d": "lidar_freespace"
   },
   "topicToSubscribers": {
-    "/localization/100hz/inspvax_gnss_msf": [
-      "common_manager",
-      "logsim_prediction_infer",
-      "map_router",
-      "neo_parking",
-      "state_machine"
-    ],
     "/canbus/vehicle_speed/Vehicle_speed": [
+      "after_sale_calibration",
       "common_manager",
       "location",
       "logsim_prediction_infer",
       "map_router",
+      "model_infer",
       "neo_parking"
+    ],
+    "/sensor/novatel/Imu": [
+      "after_sale_calibration",
+      "factory_calibration",
+      "location"
+    ],
+    "/localization/100hz/inspvax_gnss_msf": [
+      "common_manager",
+      "logsim_prediction_infer",
+      "map_router",
+      "model_infer",
+      "neo_parking",
+      "state_machine"
     ],
     "/localization/100hz/localization_vehicle_speed": [
       "common_manager",
       "logsim_prediction_infer",
       "map_router",
+      "model_infer",
       "neo_parking",
       "orin_ivi"
     ],
@@ -1429,6 +1509,7 @@
       "common_manager",
       "logsim_prediction_infer",
       "map_router",
+      "model_infer",
       "neo_parking",
       "state_machine",
       "planning",
@@ -1474,9 +1555,6 @@
     "/sensor/lidar/top/pointcloud": [
       "lfc",
       "model_infer"
-    ],
-    "/sensor/novatel/Imu": [
-      "location"
     ],
     "/pnc/control": [
       "location",
@@ -1570,13 +1648,14 @@
     "/perception/environment_monitor": [
       "neo_canbus"
     ],
+    "/pnc/pnc_state": [
+      "neo_canbus",
+      "state_machine"
+    ],
     "/openapi_ld/dispatch_request": [
       "state_machine"
     ],
     "/openapi_ld/extricate_response": [
-      "state_machine"
-    ],
-    "/pnc/pnc_state": [
       "state_machine"
     ],
     "/dcl/report": [
@@ -1595,6 +1674,9 @@
       "state_machine"
     ],
     "/localization/100hz/inspvax_gnss_msf_utm": [
+      "state_machine"
+    ],
+    "/nexis/security/alarm/fault_process": [
       "state_machine"
     ],
     "/system/system_monitor": [
@@ -1635,7 +1717,8 @@
         "cb_auto_driver_status",
         "cb_vehicle_self_clean",
         "cb_environment_monitor",
-        "cb_state_machine"
+        "cb_state_machine",
+        "cb_pnc_state"
       ]
     },
     "lfc_executor": {
@@ -1779,15 +1862,85 @@
       "hz": 5,
       "queueSize": 5,
       "requiredInputs": [
-        "prediction_obstacles"
+        "model_infer_prediction_obstacles"
       ],
       "optionalInputs": [
-        "occ_infer",
+        "e2e_occ_infer",
         "occ_fusion_map",
         "router_output",
         "neo_maps",
         "guideinfo"
       ]
+    },
+    "online_calibration": {
+      "intervalUs": 200000,
+      "hz": 5,
+      "queueSize": 5,
+      "requiredInputs": [
+        "top_lidar",
+        "front_lidar",
+        "camera_0",
+        "camera_1",
+        "camera_2",
+        "camera_3",
+        "camera_4",
+        "camera_5",
+        "camera_6",
+        "camera_7",
+        "camera_8",
+        "camera_9",
+        "camera_10",
+        "camera_11",
+        "canbus_pub_wheel_speed"
+      ],
+      "optionalInputs": []
+    },
+    "after_sale_calibration": {
+      "intervalUs": 200000,
+      "hz": 5,
+      "queueSize": 5,
+      "requiredInputs": [
+        "top_lidar",
+        "front_lidar",
+        "camera_0",
+        "camera_1",
+        "camera_2",
+        "camera_3",
+        "camera_4",
+        "camera_5",
+        "camera_6",
+        "camera_7",
+        "camera_8",
+        "camera_9",
+        "camera_10",
+        "camera_11",
+        "canbus_pub_wheel_speed",
+        "imu_data"
+      ],
+      "optionalInputs": []
+    },
+    "factory_calibration": {
+      "intervalUs": 200000,
+      "hz": 5,
+      "queueSize": 5,
+      "requiredInputs": [
+        "top_lidar",
+        "front_lidar",
+        "camera_0",
+        "camera_1",
+        "camera_2",
+        "camera_3",
+        "camera_4",
+        "camera_5",
+        "camera_6",
+        "camera_7",
+        "camera_8",
+        "camera_9",
+        "camera_10",
+        "camera_11",
+        "imu_data"
+      ],
+      "optionalInputs": []
     },
     "state_machine_executor": {
       "intervalUs": 200000,
@@ -1812,6 +1965,7 @@
         "fsm_control",
         "fsm_control_state",
         "fsm_utm_pose",
+        "fsm_fault_process",
         "fsm_sys_monitor",
         "fsm_vlm_response"
       ]
@@ -1945,6 +2099,30 @@
       ],
       "sourceFile": "model_infer.pbtxt"
     },
+    "OnlineCalibNexisExecutor": {
+      "taskName": "online_calibration",
+      "libName": "libonline_calibration.so",
+      "cfgFiles": [
+        "/home/caros/cyberrt/conf/online_calibration_config/online_calib_nexis_executor.yaml"
+      ],
+      "sourceFile": "online_calibration.pbtxt"
+    },
+    "AfterSaleCalibNexisExecutor": {
+      "taskName": "after_sale_calibration",
+      "libName": "libafter_sales_calibration.so",
+      "cfgFiles": [
+        "/home/caros/cyberrt/conf/after_sales_calibration_config/after_sale_calib_nexis_executor.yaml"
+      ],
+      "sourceFile": "online_calibration.pbtxt"
+    },
+    "FactoryCalibNexisExecutor": {
+      "taskName": "factory_calibration",
+      "libName": "libfactory_calibration.so",
+      "cfgFiles": [
+        "/home/caros/cyberrt/conf/factory_calibration_config/factory_calib_nexis_executor.yaml"
+      ],
+      "sourceFile": "online_calibration.pbtxt"
+    },
     "StateMachineNexisExecutor": {
       "taskName": "state_machine_executor",
       "libName": "libstate_machine.so",
@@ -1990,7 +2168,8 @@
           "cb_auto_driver_status",
           "cb_vehicle_self_clean",
           "cb_environment_monitor",
-          "cb_state_machine"
+          "cb_state_machine",
+          "cb_pnc_state"
         ],
         "outputs": [
           "canbus_timestamp",
@@ -2249,17 +2428,147 @@
           "/home/caros/cyberrt/conf/planning_executor_conf.yml"
         ],
         "inputs": [
-          "prediction_obstacles",
+          "model_infer_prediction_obstacles",
           "d",
-          "occ_infer",
+          "e2e_occ_infer",
+          "v",
           "occ_fusion_map",
+          "v",
           "router_output",
           "neo_maps",
           "guideinfo"
         ],
         "outputs": [
-          "e2e_result"
+          "e2e_result",
+          "e2e_monitor"
         ]
+      }
+    ],
+    "online_calibration": [
+      {
+        "taskName": "online_calibration",
+        "className": "OnlineCalibNexisExecutor",
+        "libName": "libonline_calibration.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/online_calibration_config/online_calib_nexis_executor.yaml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "d",
+          "front_lidar",
+          "d",
+          "camera_0",
+          "d",
+          "camera_1",
+          "d",
+          "camera_2",
+          "d",
+          "camera_3",
+          "d",
+          "camera_4",
+          "d",
+          "camera_5",
+          "d",
+          "camera_6",
+          "d",
+          "camera_7",
+          "d",
+          "camera_8",
+          "d",
+          "camera_9",
+          "d",
+          "camera_10",
+          "d",
+          "camera_11",
+          "d",
+          "canbus_pub_wheel_speed",
+          "d"
+        ],
+        "outputs": []
+      },
+      {
+        "taskName": "after_sale_calibration",
+        "className": "AfterSaleCalibNexisExecutor",
+        "libName": "libafter_sales_calibration.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/after_sales_calibration_config/after_sale_calib_nexis_executor.yaml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "d",
+          "front_lidar",
+          "d",
+          "camera_0",
+          "d",
+          "camera_1",
+          "d",
+          "camera_2",
+          "d",
+          "camera_3",
+          "d",
+          "camera_4",
+          "d",
+          "camera_5",
+          "d",
+          "camera_6",
+          "d",
+          "camera_7",
+          "d",
+          "camera_8",
+          "d",
+          "camera_9",
+          "d",
+          "camera_10",
+          "d",
+          "camera_11",
+          "d",
+          "canbus_pub_wheel_speed",
+          "d",
+          "imu_data",
+          "d"
+        ],
+        "outputs": []
+      },
+      {
+        "taskName": "factory_calibration",
+        "className": "FactoryCalibNexisExecutor",
+        "libName": "libfactory_calibration.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/factory_calibration_config/factory_calib_nexis_executor.yaml"
+        ],
+        "inputs": [
+          "top_lidar",
+          "d",
+          "front_lidar",
+          "d",
+          "camera_0",
+          "d",
+          "camera_1",
+          "d",
+          "camera_2",
+          "d",
+          "camera_3",
+          "d",
+          "camera_4",
+          "d",
+          "camera_5",
+          "d",
+          "camera_6",
+          "d",
+          "camera_7",
+          "d",
+          "camera_8",
+          "d",
+          "camera_9",
+          "d",
+          "camera_10",
+          "d",
+          "camera_11",
+          "d",
+          "imu_data",
+          "d"
+        ],
+        "outputs": []
       }
     ],
     "state_machine": [
@@ -2288,6 +2597,7 @@
           "fsm_control",
           "fsm_control_state",
           "fsm_utm_pose",
+          "fsm_fault_process",
           "fsm_sys_monitor",
           "fsm_vlm_response"
         ],
@@ -2387,7 +2697,8 @@
           "cb_auto_driver_status",
           "cb_vehicle_self_clean",
           "cb_environment_monitor",
-          "cb_state_machine"
+          "cb_state_machine",
+          "cb_pnc_state"
         ],
         "outputs": [
           "canbus_timestamp",
@@ -2490,20 +2801,6 @@
         "topic": "/perception/obj_infer",
         "fromData": "obj_infer",
         "toData": "obj_infer"
-      },
-      {
-        "from": "PredictionNexisExecutor",
-        "to": "PlanningNexisExecutor",
-        "topic": "/pnc/prediction",
-        "fromData": "prediction",
-        "toData": "prediction_obstacles"
-      },
-      {
-        "from": "OneModelNexisExecutor",
-        "to": "PlanningNexisExecutor",
-        "topic": "/perception/occ_infer",
-        "fromData": "occ_infer",
-        "toData": "occ_infer"
       }
     ],
     "location": [

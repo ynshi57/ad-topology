@@ -4,7 +4,6 @@ import { buildTopologyFromChannels, DOMAINS } from './topology-builder.js';
 import { createGraph } from './graph.js';
 import { createTimeline } from './timeline.js';
 import { createTopicPanel } from './topic-panel.js';
-import { createOutputPanel } from './output-panel.js';
 import { createNodeDetail } from './node-detail.js';
 import { initDecoder, decodeMessage } from './proto-decoder.js';
 import { createReplayTestView } from './test-panel.js';
@@ -24,7 +23,6 @@ let currentView = 'dropzone';
 let currentGraph = null;
 let currentTimeline = null;
 let currentPanel = null;
-let currentOutput = null;
 let currentDetail = null;
 let current3DScene = null;
 let current3DTopics = null;
@@ -749,7 +747,6 @@ function showTopologyView() {
       <div class="panel-area" id="panel-area" style="display:${show3D || showCamera ? 'none' : 'flex'}"></div>
     </div>
     <div class="timeline-area" id="timeline-area"></div>
-    <div class="output-area" id="output-area"></div>
   `;
 
   activeSplitters.forEach(s => s.destroy());
@@ -760,7 +757,6 @@ function showTopologyView() {
     onNodeDetail(nodeId) { showDetailView(nodeId); },
   });
   sharedDesignHz = currentGraph.getTopicDesignHz();
-  currentOutput = createOutputPanel(document.getElementById('output-area'));
   currentPanel = createTopicPanel(document.getElementById('panel-area'), {
     channels: summary.channels.filter(ch => ch.publisher),
     onTopicClick(topic) { currentGraph.setActiveTopics([topic]); },
@@ -776,8 +772,6 @@ function showTopologyView() {
 
   const mainArea = document.querySelector('.main-area');
   const timelineEl = document.getElementById('timeline-area');
-  const outputEl = document.getElementById('output-area');
-  activeSplitters.push(createSplitter(timelineEl, outputEl, { direction: 'vertical', min: 32, max: 400, reverse: true }));
 
   // 3D Scene
   if (show3D && foxgloveChannels.length > 0) {
@@ -1033,29 +1027,29 @@ function setupTimeline(timelineArea) {
         pushCachedMessages(currentSec);
       }
 
-      // Freq alerts
-      if (currentOutput) {
-        for (const topic of allActiveTopics) {
-          const firstSec = msgTopicFirstSec[topic];
-          if (firstSec === undefined || currentSec - firstSec < 1.0) continue;
-          const actual = topicFreqs[topic] || 0;
-          const design = designHz[topic] || 0;
-          if (design <= 0) continue;
-          const ratio = actual / design;
-          let level = 'ok';
-          if (actual === 0) level = 'dead';
-          else if (ratio < 0.5) level = 'error';
-          else if (ratio < 0.8) level = 'warn';
+      // Freq alerts -> Debug Log (single logging surface).
+      for (const topic of allActiveTopics) {
+        const firstSec = msgTopicFirstSec[topic];
+        if (firstSec === undefined || currentSec - firstSec < 1.0) continue;
+        const actual = topicFreqs[topic] || 0;
+        const design = designHz[topic] || 0;
+        if (design <= 0) continue;
+        const ratio = actual / design;
+        let level = 'ok';
+        if (actual === 0) level = 'dead';
+        else if (ratio < 0.5) level = 'error';
+        else if (ratio < 0.8) level = 'warn';
 
-          if (level !== 'ok' && level !== lastAlertLevel[topic]) {
-            lastAlertLevel[topic] = level;
-            const levelStr = level === 'dead' ? 'CRITICAL' : level === 'error' ? 'ERROR' : 'WARN';
-            const msg = level === 'dead' ? 'no messages in 1s window'
-              : `freq ${actual.toFixed(1)}Hz / ${design.toFixed(1)}Hz (${(ratio * 100).toFixed(0)}%)`;
-            currentOutput.log(currentSec, levelStr, topic, msg);
-          }
-          if (level === 'ok' && lastAlertLevel[topic]) delete lastAlertLevel[topic];
+        if (level !== 'ok' && level !== lastAlertLevel[topic]) {
+          lastAlertLevel[topic] = level;
+          const levelStr = level === 'dead' ? 'CRITICAL' : level === 'error' ? 'ERROR' : 'WARN';
+          const msg = level === 'dead' ? 'no messages in 1s window'
+            : `freq ${actual.toFixed(1)}Hz / ${design.toFixed(1)}Hz (${(ratio * 100).toFixed(0)}%)`;
+          const line = `[freq-alert ${levelStr}] t=${currentSec.toFixed(2)}s ${topic}: ${msg}`;
+          if (level === 'warn') { console.warn(line); }
+          else { console.error(line); }
         }
+        if (level === 'ok' && lastAlertLevel[topic]) delete lastAlertLevel[topic];
       }
     },
   });
@@ -1077,13 +1071,11 @@ function showDetailView(nodeId) {
   app.innerHTML = `
     <div class="detail-container" id="detail-container"></div>
     <div class="timeline-area" id="timeline-area"></div>
-    <div class="output-area" id="output-area"></div>
   `;
 
   activeSplitters.forEach(s => s.destroy());
   activeSplitters = [];
 
-  currentOutput = createOutputPanel(document.getElementById('output-area'));
   currentDetail = createNodeDetail(document.getElementById('detail-container'), {
     nodeId, topology: sharedTopology, DOMAINS,
     onBack() { backToTopology(); },
@@ -1091,8 +1083,6 @@ function showDetailView(nodeId) {
 
   const detailContainer = document.getElementById('detail-container');
   const dtTimelineEl = document.getElementById('timeline-area');
-  const dtOutputEl = document.getElementById('output-area');
-  activeSplitters.push(createSplitter(dtOutputEl, dtTimelineEl, { direction: 'vertical', min: 32, max: 400, reverse: true }));
 
   detailLastSec = -1;
   detailCursors = {};
@@ -1115,7 +1105,6 @@ function backToTopology() {
   currentView = 'topology';
   if (currentTimeline) { currentTimeline.pause(); currentTimeline.destroy(); currentTimeline = null; }
   if (currentDetail) { currentDetail.destroy(); currentDetail = null; }
-  if (currentOutput) { currentOutput.destroy(); currentOutput = null; }
   activeSplitters.forEach(s => s.destroy());
   activeSplitters = [];
   showTopologyView();
@@ -1127,7 +1116,6 @@ async function showReplayTestView(nodeId) {
   currentView = 'replay-test';
   if (currentTimeline) { currentTimeline.pause(); currentTimeline.destroy(); currentTimeline = null; }
   if (currentDetail) { currentDetail.destroy(); currentDetail = null; }
-  if (currentOutput) { currentOutput.destroy(); currentOutput = null; }
 
   app.innerHTML = '';
   currentReplayTest = await createReplayTestView(app, {
@@ -1295,7 +1283,6 @@ function cleanupAll() {
   if (currentGraph) { currentGraph.destroy(); currentGraph = null; }
   if (currentTimeline) { currentTimeline.destroy(); currentTimeline = null; }
   if (currentPanel) { currentPanel.destroy(); currentPanel = null; }
-  if (currentOutput) { currentOutput.destroy(); currentOutput = null; }
   if (currentDetail) { currentDetail.destroy(); currentDetail = null; }
   if (current3DScene) { current3DScene.destroy(); current3DScene = null; }
   if (current3DTopics) { current3DTopics.destroy(); current3DTopics = null; }
