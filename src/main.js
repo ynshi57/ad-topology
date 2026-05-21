@@ -784,8 +784,7 @@ function showTopologyView() {
     if (show3D) { showCamera = false; }
     updateMainAreaVisibility();
     if (show3D && !current3DScene) { setup3DPanel(); }
-    if (!show3D && current3DScene) { current3DScene.destroy(); current3DScene = null; }
-    if (!show3D && current3DTopics) { current3DTopics.destroy(); current3DTopics = null; }
+    refreshVisiblePlaybackFrame();
   });
 
   // Camera toggle button
@@ -795,7 +794,7 @@ function showTopologyView() {
       if (showCamera) { show3D = false; }
       updateMainAreaVisibility();
       if (showCamera && !currentCameraPanel) { setupCameraPanel(); }
-      if (!showCamera && currentCameraPanel) { currentCameraPanel.destroy(); currentCameraPanel = null; }
+      refreshVisiblePlaybackFrame();
     });
     if (showCamera) { setupCameraPanel(); }
     showAvifWarning();
@@ -891,10 +890,13 @@ function updateMainAreaVisibility() {
   if (scene3d) { scene3d.style.display = show3D ? 'block' : 'none'; }
   if (cameraArea) { cameraArea.style.display = showCamera ? 'flex' : 'none'; }
   if (panelArea) { panelArea.style.display = showGraph ? 'flex' : 'none'; }
+}
 
-  if (!show3D && current3DScene) { current3DScene.destroy(); current3DScene = null; }
-  if (!show3D && current3DTopics) { current3DTopics.destroy(); current3DTopics = null; }
-  if (!showCamera && currentCameraPanel) { currentCameraPanel.destroy(); currentCameraPanel = null; }
+function refreshVisiblePlaybackFrame() {
+  if (!currentTimeline) { return; }
+  const state = currentTimeline.getState?.();
+  if (!state?.currentNs) { return; }
+  currentTimeline.seek(state.currentNs);
 }
 
 function setupCameraPanel() {

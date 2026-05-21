@@ -1,7 +1,6 @@
-import { runVqaDetect, summarizeVqaLogLine } from './vqa-runner.js';
+import { runPromptFanout, runVqaDetect, summarizeVqaLogLine } from './vqa-runner.js';
 import { loadVqaSidecar } from './vqa-overlay.js';
 import { renderImpactTable } from './vqa-impact.js';
-import { renderLabelPanel } from './vqa-label-panel.js';
 
 function esc(s) {
   const d = document.createElement('span');
@@ -57,6 +56,40 @@ function renderPerCameraAttention(attn) {
   return `<div class="vqa-attn">${rows}</div>`;
 }
 
+function renderTeacherSummary(index) {
+  if (!index?.frames?.length) { return ''; }
+  let total = 0;
+  let pending = 0;
+  let accepted = 0;
+  let corrected = 0;
+  let rejected = 0;
+  for (const frame of index.frames) {
+    const states = frame.answer?.parsed?.camera_states || {};
+    for (const st of Object.values(states)) {
+      if (st.source !== 'prompt_fanout') { continue; }
+      total += 1;
+      const status = st.review_status || 'pending';
+      if (status === 'accepted') { accepted += 1; }
+      else if (status === 'corrected') { corrected += 1; }
+      else if (status === 'rejected') { rejected += 1; }
+      else { pending += 1; }
+    }
+  }
+  if (total === 0) { return ''; }
+  return `
+    <details class="vqa-details" open>
+      <summary>Teacher / Review Summary</summary>
+      <div class="vqa-summary-grid">
+        <div><b>teacher samples</b><span>${total}</span></div>
+        <div><b>pending</b><span>${pending}</span></div>
+        <div><b>accepted</b><span>${accepted}</span></div>
+        <div><b>corrected</b><span>${corrected}</span></div>
+        <div><b>rejected</b><span>${rejected}</span></div>
+      </div>
+    </details>
+  `;
+}
+
 const RUNTIME_HELP = {
   fixture: 'UI/链路自检：固定假结果，不代表图像真实状态。',
   external: '调用外部模型命令：适合模型团队给 atlas_vqa_runtime input.json output.json。',
@@ -94,6 +127,7 @@ function renderLatest(index) {
       ${renderDiagBlock('determinism', frame.diagnostics?.determinism)}
       ${renderDiagBlock('decoder', frame.diagnostics?.decoder)}
     </div>
+    ${renderTeacherSummary(index)}
     <details class="vqa-details" open>
       <summary>Camera States</summary>
       <table class="vqa-state-table">
@@ -116,7 +150,6 @@ export function createVqaPanel(opts) {
   const {
     mcapPath,
     vqaIndex = null,
-    cameras = [],
     onVqaIndexChange = () => {},
   } = opts;
   let currentIndex = vqaIndex;
@@ -145,6 +178,29 @@ export function createVqaPanel(opts) {
       <button id="vqa-cancel" class="vqa-cancel-btn" style="display:none">Cancel</button>
     </div>
     <div class="vqa-runtime-help" id="vqa-runtime-help">${esc(RUNTIME_HELP.fixture)}</div>
+    <details class="vqa-details vqa-teacher" open>
+      <summary>Prompt VQA Teacher</summary>
+      <div class="vqa-panel-controls">
+        <input id="vqa-prompt-repo" class="vqa-control wide" placeholder="/path/to/atlas_data_product_line" title="prompt_fanout repo path" />
+        <input id="vqa-prompt-python" class="vqa-control wide" placeholder="/path/to/python" title="python inside prompt_fanout venv" />
+        <select id="vqa-prompt-model" class="vqa-control">
+          <option value="qwen3-vl-8b">qwen3-vl-8b</option>
+          <option value="cosmos-7b">cosmos-7b</option>
+          <option value="internvl3.5-8b">internvl3.5-8b</option>
+        </select>
+        <select id="vqa-prompt-task" class="vqa-control">
+          <option value="failsafe_dirty">failsafe_dirty</option>
+          <option value="failsafe_exposure">failsafe_exposure</option>
+          <option value="quality_v4_2class">quality_v4_2class</option>
+        </select>
+        <input id="vqa-prompt-frames" class="vqa-control" value="0" title="frame indices, e.g. 0,30,60" />
+        <button id="vqa-run-prompt" class="vqa-run-btn">Run Prompt VQA</button>
+      </div>
+      <div class="vqa-runtime-help">
+        Prompt VQA 会调用 atlas_data_product_line 的 prompt_fanout 生成 teacher 预标注；未配置 repo/python 时只会提示 not configured。
+      </div>
+      <pre class="vqa-json" id="vqa-prompt-result"></pre>
+    </details>
     <div class="vqa-progress" id="vqa-progress" style="display:none">
       <div class="vqa-progress-text" id="vqa-progress-text">starting...</div>
     </div>
@@ -165,11 +221,13 @@ export function createVqaPanel(opts) {
   const stabilityInput = wrap.querySelector('#vqa-stability-runs');
   const modelPathInput = wrap.querySelector('#vqa-model-path');
   const runtimeHelpEl = wrap.querySelector('#vqa-runtime-help');
-  bodyEl.appendChild(renderLabelPanel({
-    cameras,
-    mcapPath,
-    getCurrentFrame: () => currentIndex?.frames?.[currentIndex.frames.length - 1] || null,
-  }));
+  const promptRepoEl = wrap.querySelector('#vqa-prompt-repo');
+  const promptPythonEl = wrap.querySelector('#vqa-prompt-python');
+  const promptModelEl = wrap.querySelector('#vqa-prompt-model');
+  const promptTaskEl = wrap.querySelector('#vqa-prompt-task');
+  const promptFramesEl = wrap.querySelector('#vqa-prompt-frames');
+  const promptResultEl = wrap.querySelector('#vqa-prompt-result');
+  const promptBtn = wrap.querySelector('#vqa-run-prompt');
 
   function setIndex(index) {
     currentIndex = index;
@@ -185,6 +243,33 @@ export function createVqaPanel(opts) {
   }
   runtimeSel.addEventListener('change', updateRuntimeHelp);
   updateRuntimeHelp();
+
+  promptBtn.addEventListener('click', async () => {
+    if (!mcapPath) {
+      promptResultEl.textContent = 'No mcap server path. Load a cached/server file first.';
+      return;
+    }
+    promptBtn.disabled = true;
+    promptResultEl.textContent = 'running prompt_fanout...';
+    try {
+      const result = await runPromptFanout({
+        mcapPath,
+        repoPath: promptRepoEl.value,
+        pythonPath: promptPythonEl.value,
+        model: promptModelEl.value,
+        task: promptTaskEl.value,
+        frameIndices: promptFramesEl.value || '0',
+      });
+      promptResultEl.textContent = JSON.stringify(result, null, 2);
+      const reloaded = await loadVqaSidecar(mcapPath);
+      setIndex(reloaded);
+    } catch (err) {
+      promptResultEl.textContent = `failed: ${err.message}`;
+      console.error('Prompt VQA failed:', err);
+    } finally {
+      promptBtn.disabled = false;
+    }
+  });
 
   runBtn.addEventListener('click', async () => {
     if (!mcapPath) {

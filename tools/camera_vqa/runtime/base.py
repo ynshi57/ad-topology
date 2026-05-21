@@ -43,4 +43,8 @@ def load_runtime(name: str, config: Dict) -> CameraVqaRuntime:
         from .local_model import LocalModelRuntime
 
         return LocalModelRuntime(config)
+    if name == "prompt_fanout":
+        from .prompt_fanout import PromptFanoutRuntime
+
+        return PromptFanoutRuntime(config)
     raise ValueError(f"unknown camera VQA runtime: {name}")

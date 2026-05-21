@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "prebuild": "node scripts/build-nexis-config.js",
+    "test": "node scripts/test-build-nexis-config.js",
     "dev": "npm run prebuild && vite",
     "server": "node server/index.js",
     "dev:full": "npm run prebuild && (node server/index.js &) && vite",

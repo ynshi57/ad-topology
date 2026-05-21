@@ -96,3 +96,48 @@ export function summarizeVqaLogLine(line) {
   if (t.startsWith('error:')) { return t; }
   return null;
 }
+
+async function postJson(path, payload) {
+  const resp = await fetch(`http://localhost:8765${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+  const json = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(json.error || `${path} HTTP ${resp.status}`);
+  }
+  return json;
+}
+
+export function datasetImageUrl(path) {
+  return `http://localhost:8765/camera-vqa-image?path=${encodeURIComponent(path)}`;
+}
+
+export async function extractVqaFrames(opts) {
+  return postJson('/camera-vqa-extract-frames', opts);
+}
+
+export async function loadVqaManifest(datasetId) {
+  return postJson('/camera-vqa-manifest-load', { datasetId });
+}
+
+export async function loadVqaLabels(datasetId) {
+  return postJson('/camera-vqa-labels-load', { datasetId });
+}
+
+export async function saveVqaLabels(datasetId, labels) {
+  return postJson('/camera-vqa-label-save', { datasetId, labels });
+}
+
+export async function trainVqaLocalModel(opts) {
+  return postJson('/camera-vqa-train', opts);
+}
+
+export async function evaluateVqaLocalModel(opts) {
+  return postJson('/camera-vqa-evaluate', opts);
+}
+
+export async function runPromptFanout(opts) {
+  return postJson('/camera-vqa-prompt-fanout', opts);
+}

@@ -90,7 +90,7 @@ MCAP 是自动驾驶领域的标准录制格式（由 Foxglove 开发），支�
 |--------|------|------|
 | Transport 配置 | `ad_dag/config/nexis/deploy/*/transport.pbtxt` | Nexis 框架进程的 pub/sub topic 绑定 |
 | Data 定义 | `ad_dag/config/nexis/resource/data.d/*.pbtxt` | 逻辑数据名 → protobuf 类型映射 |
-| CyberRT 进程 | `scripts/build-nexis-config.js` 内置 | mainboard 进程的 topic 归属（从 DAG + 代码分析得来） |
+| CyberRT 进程 | `scripts/build-nexis-config.js` 内置 | mainboard 进程的 topic 归属（从 DAG + 代码分析得来）；仅作为 fallback，不覆盖明确的 Nexis transport 发布者 |
 
 当前覆盖 **23 个进程**、**59 个 publisher topic**、**37 个 subscriber 关系**。
 

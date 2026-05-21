@@ -193,11 +193,16 @@ const CYBER_PROCESSES = {
       '/openapi/auto_driver_status',
       '/maprouter/routing_request',
       '/maprouter/adjusted_navi_request_info',
-      '/openapi_ld/pilot_state',
-      '/openapi_ld/zone_report',
       '/openapi_ld/dispatch_request',
     ],
-    sub: [],
+    sub: [
+      '/openapi_ld/pilot_state',
+      '/openapi_ld/zone_report',
+      '/openapi_ld/dispatch_result',
+      '/openapi_ld/extricate_request',
+      '/openapi_ld/notify',
+      '/openapi_ld/event',
+    ],
   },
   dynamic_layer: {
     domain: 'pnc',
@@ -609,7 +614,15 @@ const processes = {};
 const topicToPublisher = {};
 const topicToSubscribers = {};
 
-function addPub(proc, topic, proto, dataName) {
+function addPub(proc, topic, proto, dataName, options = {}) {
+  // CyberRT definitions are a fallback for code-defined mainboard topics.
+  // They must not override an explicit Nexis transport publisher for the same
+  // topic, because transport reflects the selected Nexis deployment profile.
+  // The generic "default" profile is reused by multiple apps, so concrete
+  // code-derived publishers may still refine that placeholder ownership.
+  if (options.source === 'cyberFallback' && topicToPublisher[topic] && topicToPublisher[topic] !== 'default') {
+    return;
+  }
   if (!processes[proc]) processes[proc] = { domain: 'system', layer: 5, runtime: 'unknown', pub: [], sub: [] };
   const existing = processes[proc].pub.find(p => p.topic === topic);
   if (!existing) {
@@ -660,7 +673,7 @@ for (const [proc, info] of Object.entries(CYBER_PROCESSES)) {
   processes[proc].domain = info.domain;
   processes[proc].layer = info.layer;
   processes[proc].runtime = 'cyber';
-  for (const topic of info.pub) addPub(proc, topic, '');
+  for (const topic of info.pub) addPub(proc, topic, '', undefined, { source: 'cyberFallback' });
   for (const topic of info.sub) addSub(proc, topic, '');
 }
 

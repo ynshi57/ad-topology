@@ -2173,6 +2173,64 @@ html, body {
   max-height: none;
   border-top: none;
 }
+.cam-tab-model-lab,
+.cam-tab-label-tool {
+  overflow: hidden;
+}
+.model-lab {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background: #050505;
+}
+.model-lab-sidebar {
+  flex: 0 0 160px;
+  border-right: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.model-lab-item {
+  background: #111;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12px;
+}
+.model-lab-item.active {
+  color: var(--text-primary);
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+}
+.model-lab-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+}
+.model-lab-detail {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+.model-lab-detail.active {
+  display: flex;
+  flex-direction: column;
+}
+.model-lab-detail > .yolo-panel,
+.model-lab-detail > .vqa-panel {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  border-top: none;
+}
 
 /* Fisheye 2x2 grid */
 .cam-fisheye-grid {
@@ -3658,6 +3716,9 @@ body { padding-bottom: 28px; }
   border-radius: 4px;
   padding: 3px 6px;
 }
+.vqa-control.wide {
+  min-width: 280px;
+}
 .vqa-run-btn { color: #7dd3fc; border-color: #164e63; }
 .vqa-cancel-btn { color: #fca5a5; border-color: #7f1d1d; }
 .vqa-progress-text {
@@ -3798,6 +3859,143 @@ body { padding-bottom: 28px; }
   align-items: center;
   gap: 4px;
   color: var(--text-tertiary);
+  font-size: 10px;
+}
+.vqa-label-tool {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  overflow: hidden;
+  background: #050505;
+}
+.vqa-label-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.vqa-label-toolbar label,
+.vqa-label-left label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.vqa-label-toolbar input,
+.vqa-label-left input,
+.vqa-label-left select {
+  background: #111;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 10px;
+}
+.vqa-label-toolbar #vqa-label-mcap {
+  width: 420px;
+}
+.vqa-label-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+}
+.vqa-label-left {
+  flex: 0 0 260px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  overflow: auto;
+  background: #090909;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vqa-label-progress {
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 12px;
+}
+.vqa-label-meta {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.vqa-teacher-suggestion {
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 6px;
+  background: rgba(56, 189, 248, 0.06);
+}
+.vqa-teacher-suggestion b {
+  color: var(--text-primary);
+}
+.vqa-label-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.vqa-label-state-btn {
+  background: #111;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 6px;
+  font-size: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.vqa-label-state-btn.active {
+  color: var(--text-primary);
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+}
+.vqa-label-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.vqa-label-viewer {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 180px;
+  gap: 8px;
+}
+.vqa-label-image-wrap {
+  border: 1px solid var(--border);
+  background: #000;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.vqa-label-image-wrap img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.vqa-label-json {
+  margin: 0;
+  overflow: auto;
+  background: #080808;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  color: var(--text-tertiary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 10px;
 }
 .vqa-label-grid input,

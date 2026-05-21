@@ -1066,11 +1066,6 @@
       "runtime": "cyber",
       "pub": [
         {
-          "topic": "/pnc/prediction",
-          "proto": "",
-          "dataName": "prediction"
-        },
-        {
           "topic": "/perception/environment_monitor",
           "proto": "",
           "dataName": "environment_monitor"
@@ -1162,6 +1157,13 @@
           "dataName": "adjusted_navi_request_info"
         },
         {
+          "topic": "/openapi_ld/dispatch_request",
+          "proto": "",
+          "dataName": "dispatch_request"
+        }
+      ],
+      "sub": [
+        {
           "topic": "/openapi_ld/pilot_state",
           "proto": "",
           "dataName": "pilot_state"
@@ -1172,12 +1174,26 @@
           "dataName": "zone_report"
         },
         {
-          "topic": "/openapi_ld/dispatch_request",
+          "topic": "/openapi_ld/dispatch_result",
           "proto": "",
-          "dataName": "dispatch_request"
+          "dataName": "dispatch_result"
+        },
+        {
+          "topic": "/openapi_ld/extricate_request",
+          "proto": "",
+          "dataName": "extricate_request"
+        },
+        {
+          "topic": "/openapi_ld/notify",
+          "proto": "",
+          "dataName": "notify"
+        },
+        {
+          "topic": "/openapi_ld/event",
+          "proto": "",
+          "dataName": "event"
         }
-      ],
-      "sub": []
+      ]
     },
     "dynamic_layer": {
       "domain": "pnc",
@@ -1412,7 +1428,7 @@
     "/localization/100hz/inspvax_gnss_msf_delta": "location",
     "/localization/100hz/inspvax_gnss_msf_utm": "location",
     "/localization/ndt_pointcloud": "location",
-    "/pnc/prediction": "perception",
+    "/pnc/prediction": "model_infer",
     "/perception/tld_postprocess": "neo_tld_postprocess",
     "/perception/static": "neo_rec_static",
     "/neo_map_router/router_output": "map_router",
@@ -1437,12 +1453,12 @@
     "/sensor/novatel/bestgnssvel": "neo_sensor",
     "/sensor/novatel/Heading": "neo_sensor",
     "/sensor/novatel/Imu": "neo_sensor",
-    "/openapi_ld/pilot_state": "openapi",
+    "/openapi_ld/pilot_state": "state_machine",
     "/openapi_ld/notify": "state_machine",
     "/openapi_ld/extricate_request": "state_machine",
     "/openapi/dispatch_result": "state_machine",
     "/openapi_ld/event": "state_machine",
-    "/openapi_ld/zone_report": "openapi",
+    "/openapi_ld/zone_report": "state_machine",
     "/state_machine/transition": "state_machine",
     "/state_machine/transition_debug": "state_machine",
     "/localization/100hz/localization_pose": "location",
@@ -1690,6 +1706,24 @@
     ],
     "/pnc/planning": [
       "control"
+    ],
+    "/openapi_ld/pilot_state": [
+      "openapi"
+    ],
+    "/openapi_ld/zone_report": [
+      "openapi"
+    ],
+    "/openapi_ld/dispatch_result": [
+      "openapi"
+    ],
+    "/openapi_ld/extricate_request": [
+      "openapi"
+    ],
+    "/openapi_ld/notify": [
+      "openapi"
+    ],
+    "/openapi_ld/event": [
+      "openapi"
     ]
   },
   "executorFlows": {

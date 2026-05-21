@@ -13,6 +13,7 @@ import { renderBev, createBevViewState, attachPanZoom } from './bev-renderer.js'
 import { findFrameAt, drawBboxesOnCanvas, loadYoloSidecar, getClassColor } from './yolo-overlay.js';
 import { runYoloDetect, summarizeLogLine } from './yolo-runner.js';
 import { createVqaPanel } from './vqa-panel.js';
+import { renderLabelPanel } from './vqa-label-panel.js';
 import { findVqaFrameAt, getCameraState } from './vqa-overlay.js';
 
 const AVIF_SUPPORT = checkAvifSupport();
@@ -223,7 +224,8 @@ export function createCameraPanel(container, opts) {
       <button class="cam-tab active" data-tab="cameras">Cameras</button>
       <button class="cam-tab" data-tab="fisheye">Fisheye</button>
       <button class="cam-tab" data-tab="bev">BEV</button>
-      <button class="cam-tab" data-tab="vqa">VQA Sheet</button>
+      <button class="cam-tab" data-tab="model-lab">Model Lab</button>
+      <button class="cam-tab" data-tab="label-tool">Label Tool</button>
     `;
 
     // ----- Tab content container (resizable; sibling of YOLO panel) -----
@@ -251,9 +253,26 @@ export function createCameraPanel(container, opts) {
     const bevArea = buildBevArea();
     bevPane.appendChild(bevArea);
 
-    // ----- VQA Sheet tab: model/data/label diagnostics as a full sheet -----
-    const vqaPane = document.createElement('div');
-    vqaPane.className = 'cam-tab-pane cam-tab-vqa';
+    // ----- Model Lab tab: all model-related panels (YOLO + VQA) -----
+    const modelLabPane = document.createElement('div');
+    modelLabPane.className = 'cam-tab-pane cam-tab-model-lab';
+    const modelLab = document.createElement('div');
+    modelLab.className = 'model-lab';
+    modelLab.innerHTML = `
+      <div class="model-lab-sidebar">
+        <button class="model-lab-item active" data-model="yolo">YOLOv11</button>
+        <button class="model-lab-item" data-model="vqa">Camera VQA</button>
+      </div>
+      <div class="model-lab-content">
+        <div class="model-lab-detail model-lab-yolo active"></div>
+        <div class="model-lab-detail model-lab-vqa"></div>
+      </div>
+    `;
+    modelLabPane.appendChild(modelLab);
+
+    // ----- Label Tool tab: manifest-driven image annotation -----
+    const labelToolPane = document.createElement('div');
+    labelToolPane.className = 'cam-tab-pane cam-tab-label-tool';
 
     // Distribute cells: regular cameras into spatial grid (top-down vehicle
     // layout via grid-template-areas), fisheye into a separate 2x2 grid.
@@ -315,6 +334,8 @@ export function createCameraPanel(container, opts) {
     tabContent.appendChild(camerasPane);
     tabContent.appendChild(fisheyePane);
     tabContent.appendChild(bevPane);
+    tabContent.appendChild(modelLabPane);
+    tabContent.appendChild(labelToolPane);
 
     // Tab switching: simple display toggle on panes + active class on tabs.
     function activateTab(name) {
@@ -339,7 +360,7 @@ export function createCameraPanel(container, opts) {
       btn.addEventListener('click', () => activateTab(btn.dataset.tab));
     });
 
-    // ----- Bottom: YOLO panel (always visible across tabs) -----
+    // ----- Model Lab panels -----
     const yoloPanel = buildYoloPanel();
     const vqaPanel = createVqaPanel({
       mcapPath,
@@ -350,12 +371,22 @@ export function createCameraPanel(container, opts) {
         onVqaIndexChange(idx);
       },
     });
-    vqaPane.appendChild(vqaPanel.el);
-    tabContent.appendChild(vqaPane);
-    const splitterH = document.createElement('div');
-    splitterH.className = 'cam-splitter-horizontal';
-    splitterH.title = 'Drag to resize';
-    attachVerticalDrag(splitterH, tabContent, yoloPanel);
+    modelLab.querySelector('.model-lab-yolo').appendChild(yoloPanel);
+    modelLab.querySelector('.model-lab-vqa').appendChild(vqaPanel.el);
+    const labelPanel = renderLabelPanel({
+      mcapPath,
+      cameras,
+      standalone: true,
+    });
+    labelToolPane.appendChild(labelPanel);
+    modelLab.querySelectorAll('.model-lab-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const model = btn.dataset.model;
+        modelLab.querySelectorAll('.model-lab-item').forEach(b => b.classList.toggle('active', b === btn));
+        modelLab.querySelector('.model-lab-yolo').classList.toggle('active', model === 'yolo');
+        modelLab.querySelector('.model-lab-vqa').classList.toggle('active', model === 'vqa');
+      });
+    });
 
     const focusGrid = document.createElement('div');
     focusGrid.className = 'cam-focus-grid';
@@ -399,8 +430,6 @@ export function createCameraPanel(container, opts) {
     cameraBevWrap.className = 'cam-main-area';
     cameraBevWrap.appendChild(tabBar);
     cameraBevWrap.appendChild(tabContent);
-    cameraBevWrap.appendChild(splitterH);
-    cameraBevWrap.appendChild(yoloPanel);
 
     gridContainer.appendChild(cameraBevWrap);
     gridContainer.appendChild(focusGrid);

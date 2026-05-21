@@ -199,6 +199,36 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/camera-vqa-manifest-load' && req.method === 'POST') {
+    await handleCameraVqaManifestLoad(req, res);
+    return;
+  }
+
+  if (req.url === '/camera-vqa-labels-load' && req.method === 'POST') {
+    await handleCameraVqaLabelsLoad(req, res);
+    return;
+  }
+
+  if (req.url === '/camera-vqa-train' && req.method === 'POST') {
+    await handleCameraVqaTrain(req, res);
+    return;
+  }
+
+  if (req.url === '/camera-vqa-evaluate' && req.method === 'POST') {
+    await handleCameraVqaEvaluate(req, res);
+    return;
+  }
+
+  if (req.url === '/camera-vqa-prompt-fanout' && req.method === 'POST') {
+    await handleCameraVqaPromptFanout(req, res);
+    return;
+  }
+
+  if (req.url?.startsWith('/camera-vqa-image?') && req.method === 'GET') {
+    handleCameraVqaImage(req, res);
+    return;
+  }
+
   if ((req.url === '/file' || req.url?.startsWith('/file?')) && req.method === 'GET') {
     handleFileDownload(req, res);
     return;
@@ -1589,7 +1619,47 @@ async function handleRecordToMcap(req, res) {
 const YOLO_DETECT_SCRIPT = join(__dirname, '..', 'tools', 'yolo_detect', 'detect.py');
 const CAMERA_VQA_DETECT_SCRIPT = join(__dirname, '..', 'tools', 'camera_vqa', 'detect.py');
 const CAMERA_VQA_EXTRACT_SCRIPT = join(__dirname, '..', 'tools', 'camera_vqa', 'dataset', 'extract_frames.py');
+const CAMERA_VQA_TRAIN_SCRIPT = join(__dirname, '..', 'tools', 'camera_vqa', 'train.py');
+const CAMERA_VQA_EVALUATE_SCRIPT = join(__dirname, '..', 'tools', 'camera_vqa', 'evaluate.py');
+const CAMERA_VQA_PROMPT_FANOUT_BRIDGE = `
+import json, sys, traceback
+from tools.camera_vqa.runtime.prompt_fanout import run_prompt_fanout, build_prompt_sidecar
+
+try:
+    cfg = json.loads(sys.argv[1])
+    result = run_prompt_fanout(cfg)
+    sidecar = build_prompt_sidecar(
+        mcap_path=cfg["mcap_path"],
+        output_path=cfg["output_path"],
+        task=cfg.get("task", "failsafe_dirty"),
+        model=cfg.get("model", "qwen3-vl-8b"),
+        predictions=result["predictions"],
+        raw_files=result["raw_files"],
+        frame_indices=cfg.get("frame_indices", "0"),
+    )
+    import datetime, os
+    sidecar["generated_at"] = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    os.makedirs(os.path.dirname(cfg["output_path"]) or ".", exist_ok=True)
+    with open(cfg["output_path"], "w", encoding="utf-8") as f:
+        json.dump(sidecar, f, ensure_ascii=False, indent=2)
+    print(json.dumps({
+        "ok": True,
+        "sidecarPath": cfg["output_path"],
+        "summary": sidecar.get("summary", {}),
+        "promptOutputDir": result.get("output_dir"),
+        "rawFiles": result.get("raw_files", []),
+    }, ensure_ascii=False))
+except Exception as exc:
+    print(json.dumps({
+        "ok": False,
+        "error": str(exc),
+        "traceback": traceback.format_exc(limit=6),
+    }, ensure_ascii=False))
+    sys.exit(1)
+`;
 const CAMERA_VQA_DATASET_DIR = '/home/caros/workspace/camera_vqa_dataset';
+const CAMERA_VQA_PROMPT_OUTPUT_DIR = '/home/caros/workspace/camera_vqa_prompt_outputs';
+const CAMERA_VQA_MODEL_DIR = '/home/caros/workspace/camera_vqa_models';
 const ALLOWED_YOLO_MODELS = new Set(['yolo11n', 'yolo11s', 'yolo11m', 'yolo11l', 'yolo11x']);
 
 async function handleYoloDetect(req, res) {
@@ -2094,6 +2164,332 @@ async function handleCameraVqaLabelSave(req, res) {
   }
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ ok: true, datasetId, labelsPath, count: labels.length }));
+}
+
+function safeDatasetPath(datasetId, filename) {
+  const safeId = String(datasetId || '').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
+  const root = pathResolve(join(CAMERA_VQA_DATASET_DIR, safeId));
+  const candidate = pathResolve(join(root, filename));
+  if (!candidate.startsWith(root + '/')) {
+    return null;
+  }
+  return { root, candidate, datasetId: safeId };
+}
+
+function readJsonlFile(filePath) {
+  if (!existsSync(filePath)) { return []; }
+  return readFileSync(filePath, 'utf8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(line => JSON.parse(line));
+}
+
+async function handleCameraVqaManifestLoad(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) {
+    res.writeHead(err.status || 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+  const info = safeDatasetPath(payload.datasetId, 'manifest.jsonl');
+  if (!info) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'invalid datasetId' }));
+    return;
+  }
+  try {
+    const manifest = readJsonlFile(info.candidate);
+    const labelsPath = join(info.root, 'camera_vqa_labels.jsonl');
+    const labels = readJsonlFile(labelsPath);
+    const metadataPath = join(info.root, 'metadata.json');
+    const metadata = existsSync(metadataPath)
+      ? JSON.parse(readFileSync(metadataPath, 'utf8'))
+      : null;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true,
+      datasetId: info.datasetId,
+      root: info.root,
+      manifestPath: info.candidate,
+      labelsPath,
+      manifest,
+      labels,
+      metadata,
+    }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+async function handleCameraVqaLabelsLoad(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) {
+    res.writeHead(err.status || 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+  const info = safeDatasetPath(payload.datasetId, 'camera_vqa_labels.jsonl');
+  if (!info) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'invalid datasetId' }));
+    return;
+  }
+  try {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true,
+      datasetId: info.datasetId,
+      labelsPath: info.candidate,
+      labels: readJsonlFile(info.candidate),
+    }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+function handleCameraVqaImage(req, res) {
+  try {
+    const params = new URL(req.url, `http://localhost:${PORT}`).searchParams;
+    const requested = params.get('path');
+    if (!requested || !isAbsolute(requested)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'absolute image path required' }));
+      return;
+    }
+    const resolved = pathResolve(requested);
+    const root = pathResolve(CAMERA_VQA_DATASET_DIR);
+    if (!resolved.startsWith(root + '/')) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'image path outside dataset root' }));
+      return;
+    }
+    const lower = resolved.toLowerCase();
+    const isPng = lower.endsWith('.png');
+    const isJpg = lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+    if (!isPng && !isJpg) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'only png/jpg dataset images are allowed' }));
+      return;
+    }
+    if (!existsSync(resolved) || !statSync(resolved).isFile()) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `image not found: ${resolved}` }));
+      return;
+    }
+    const stat = statSync(resolved);
+    res.writeHead(200, {
+      'Content-Type': isPng ? 'image/png' : 'image/jpeg',
+      'Content-Length': stat.size,
+      'Cache-Control': 'no-cache',
+    });
+    createReadStream(resolved).pipe(res);
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+function runCameraVqaJsonProcess(script, args, res) {
+  const pythonBin = process.env.VQA_PYTHON || process.env.YOLO_PYTHON || 'python3';
+  console.log('[camera-vqa] spawn:', pythonBin, [script, ...args].join(' '));
+  const child = spawn(pythonBin, [script, ...args], {
+    cwd: join(__dirname, '..'),
+    env: {
+      ...ENV,
+      PYTHONUNBUFFERED: '1',
+      PYTHONPATH: [join(__dirname, '..'), process.env.PYTHONPATH || ''].filter(Boolean).join(':'),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', d => { stdout += d.toString(); });
+  child.stderr.on('data', d => { stderr += d.toString(); });
+  child.on('error', err => {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  });
+  child.on('close', code => {
+    if (code !== 0) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `process failed with code ${code}`, stderr: stderr.slice(-2000) }));
+      return;
+    }
+    let parsed;
+    try { parsed = JSON.parse(stdout.trim()); }
+    catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `cannot parse process output: ${err.message}`, stdout: stdout.slice(-2000) }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, ...parsed }));
+  });
+}
+
+async function handleCameraVqaTrain(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, 128 * 1024); }
+  catch (err) {
+    res.writeHead(err.status || 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+  if (!existsSync(CAMERA_VQA_TRAIN_SCRIPT)) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'train.py missing', expectedAt: CAMERA_VQA_TRAIN_SCRIPT }));
+    return;
+  }
+  const labelsPath = pathResolve(String(payload.labelsPath || ''));
+  if (!labelsPath || !existsSync(labelsPath)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `labelsPath not found: ${labelsPath}` }));
+    return;
+  }
+  mkdirSync(CAMERA_VQA_MODEL_DIR, { recursive: true });
+  const runId = String(payload.runId || `camera_vqa_${Date.now()}`).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
+  runCameraVqaJsonProcess(CAMERA_VQA_TRAIN_SCRIPT, [
+    '--labels', labelsPath,
+    '--output-root', CAMERA_VQA_MODEL_DIR,
+    '--run-id', runId,
+    '--epochs', String(Math.max(1, Math.min(500, Number(payload.epochs) || 5))),
+    '--batch-size', String(Math.max(1, Math.min(512, Number(payload.batchSize) || 16))),
+    '--device', String(payload.device || 'cpu'),
+  ], res);
+}
+
+async function handleCameraVqaEvaluate(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, 128 * 1024); }
+  catch (err) {
+    res.writeHead(err.status || 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+  if (!existsSync(CAMERA_VQA_EVALUATE_SCRIPT)) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'evaluate.py missing', expectedAt: CAMERA_VQA_EVALUATE_SCRIPT }));
+    return;
+  }
+  const modelPath = pathResolve(String(payload.modelPath || ''));
+  const labelsPath = pathResolve(String(payload.labelsPath || ''));
+  if (!existsSync(modelPath)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `modelPath not found: ${modelPath}` }));
+    return;
+  }
+  if (!existsSync(labelsPath)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `labelsPath not found: ${labelsPath}` }));
+    return;
+  }
+  runCameraVqaJsonProcess(CAMERA_VQA_EVALUATE_SCRIPT, [
+    '--model-path', modelPath,
+    '--labels', labelsPath,
+    '--device', String(payload.device || 'cpu'),
+    '--repeat', String(Math.max(1, Math.min(100, Number(payload.repeat) || 5))),
+  ], res);
+}
+
+async function handleCameraVqaPromptFanout(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, 128 * 1024); }
+  catch (err) {
+    res.writeHead(err.status || 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+  const mcapRaw = payload.mcapPath;
+  if (typeof mcapRaw !== 'string' || !mcapRaw || !isAbsolute(mcapRaw)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'mcapPath must be an absolute path' }));
+    return;
+  }
+  const mcapPath = pathResolve(mcapRaw);
+  if (!existsSync(mcapPath)) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `mcapPath not found: ${mcapPath}` }));
+    return;
+  }
+  const repoRaw = typeof payload.repoPath === 'string' ? payload.repoPath.trim() : '';
+  const pythonRaw = typeof payload.pythonPath === 'string' ? payload.pythonPath.trim() : '';
+  const repoPath = repoRaw ? pathResolve(repoRaw) : '';
+  const pythonPath = pythonRaw ? pathResolve(pythonRaw) : '';
+  if (!repoPath || !existsSync(repoPath)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'prompt_fanout runtime not configured: repoPath is required' }));
+    return;
+  }
+  if (!pythonPath || !existsSync(pythonPath)) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'prompt_fanout runtime not configured: pythonPath is required' }));
+    return;
+  }
+  const task = ['failsafe_dirty', 'failsafe_exposure', 'quality_v4_2class'].includes(payload.task)
+    ? payload.task
+    : 'failsafe_dirty';
+  const model = typeof payload.model === 'string' && payload.model ? payload.model : 'qwen3-vl-8b';
+  const frameIndices = typeof payload.frameIndices === 'string' && payload.frameIndices
+    ? payload.frameIndices
+    : '0';
+  const outputPath = typeof payload.outputPath === 'string' && payload.outputPath
+    ? pathResolve(payload.outputPath)
+    : deriveCameraVqaOutputPath(mcapPath);
+  mkdirSync(CAMERA_VQA_PROMPT_OUTPUT_DIR, { recursive: true });
+  const promptOutputDir = join(
+    CAMERA_VQA_PROMPT_OUTPUT_DIR,
+    `${task}_${model}_${Date.now()}`.replace(/[^A-Za-z0-9._-]/g, '_'),
+  );
+  const cfg = {
+    repo_path: repoPath,
+    python_path: pythonPath,
+    mcap_path: mcapPath,
+    model,
+    task,
+    frame_indices: frameIndices,
+    output_dir: promptOutputDir,
+    output_path: outputPath,
+    task_args: typeof payload.taskArgs === 'string' ? payload.taskArgs : '',
+  };
+  const pythonBin = process.env.VQA_PYTHON || process.env.YOLO_PYTHON || 'python3';
+  const child = spawn(pythonBin, ['-c', CAMERA_VQA_PROMPT_FANOUT_BRIDGE, JSON.stringify(cfg)], {
+    cwd: join(__dirname, '..'),
+    env: {
+      ...ENV,
+      PYTHONUNBUFFERED: '1',
+      PYTHONPATH: [join(__dirname, '..'), process.env.PYTHONPATH || ''].filter(Boolean).join(':'),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', d => { stdout += d.toString(); });
+  child.stderr.on('data', d => { stderr += d.toString(); });
+  child.on('error', err => {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  });
+  child.on('close', code => {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(stdout.trim().split(/\r?\n/).slice(-1)[0] || '{}');
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `cannot parse prompt_fanout output: ${err.message}`, stdout: stdout.slice(-2000), stderr: stderr.slice(-2000) }));
+      return;
+    }
+    if (code !== 0 || parsed.ok === false) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ...parsed, stderr: stderr.slice(-2000) }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(parsed));
+  });
 }
 
 // ---------------------------------------------------------------------------
