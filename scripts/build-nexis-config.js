@@ -1,11 +1,19 @@
 #!/usr/bin/env node
 /**
- * Build a comprehensive process topology config from ALL sources:
- * 1. Nexis transport.pbtxt (nexis_app deploys)
- * 2. CyberRT DAG files + app_config.json (mainboard processes)
- * 3. Domain knowledge for CyberRT processes that define topics in code
+ * Build a process topology config for ad-topology, driven by a platform's
+ * app_config.json (NOT by blindly scanning every deploy dir).
  *
- * Output: nexis-config.json with complete topic→publisher and topic→subscribers mapping.
+ * Why app_config-driven:
+ *   ad_dag now ships per-platform launch profiles (conf/25_6090, conf/26_6012)
+ *   and versioned / test-only deploy dirs (25_*, 26_*, test_*). Scanning all of
+ *   deploy/* would conflate platforms and pull in sim/test pods. Instead we read
+ *   the chosen platform's app_config, take only the enabled apps, resolve each
+ *   nexis_app's `-p <profile>` to its deploy dir, and use the app `name` as the
+ *   topology node id. mainboard (CyberRT) apps that define channels in code use
+ *   a small CODE_TOPICS fallback.
+ *
+ * Output per platform: src/nexis-config.<platform>.json
+ * Default mirror (for static imports): src/nexis-config.json
  */
 
 import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'fs';
@@ -14,13 +22,85 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE = join(__dirname, '..', '..');
-const NEXIS_DEPLOY = join(WORKSPACE, 'ad_dag/config/nexis/deploy');
-const NEXIS_DATA = join(WORKSPACE, 'ad_dag/config/nexis/resource/data.d');
-const APP_CONFIG = join(WORKSPACE, 'ad_dag/conf/app_config.json');
-const OUTPUT = join(__dirname, '..', 'src', 'nexis-config.json');
+const AD_DAG = join(WORKSPACE, 'ad_dag');
+const NEXIS_DEPLOY = join(AD_DAG, 'config/nexis/deploy');
+const NEXIS_DATA = join(AD_DAG, 'config/nexis/resource/data.d');
+const NEXIS_FLOW = join(AD_DAG, 'config/nexis/resource/flow.d');
+const NEXIS_TASK = join(AD_DAG, 'config/nexis/resource/task.d');
+const SRC_DIR = join(__dirname, '..', 'src');
+
+// Platform launch profiles. Each maps to an app_config.json under ad_dag/conf.
+const PLATFORMS = {
+  '25_6090': 'conf/25_6090/app_config.json',
+  '26_6012': 'conf/26_6012/app_config.json',
+};
+const DEFAULT_PLATFORM = process.env.DEFAULT_PLATFORM || '26_6012';
+
+// Domain + layer for each app (topology node id == app `name` in app_config).
+// Layer drives the left→right DAG banding in the graph view.
+const APP_META = {
+  driver_gnss:       { domain: 'sensor',       layer: 0 },
+  canbus:            { domain: 'sensor',       layer: 0 },
+  udp_canbus:        { domain: 'sensor',       layer: 0 },
+  location:          { domain: 'localization', layer: 1 },
+  state_machine:     { domain: 'system',       layer: 1 },
+  openapi:           { domain: 'openapi',      layer: 1 },
+  baidu_map_service: { domain: 'maprouter',    layer: 2 },
+  dynamic_layer:     { domain: 'pnc',          layer: 2 },
+  model_infer:       { domain: 'perception',   layer: 2 },
+  orin_ivi:          { domain: 'system',       layer: 2 },
+  maprouter:         { domain: 'maprouter',    layer: 3 },
+  system_monitor:    { domain: 'system',       layer: 3 },
+  pnc:               { domain: 'pnc',          layer: 4 },
+  fault_manager:     { domain: 'system',       layer: 4 },
+  aeb:               { domain: 'pnc',          layer: 5 },
+  dcl:               { domain: 'system',       layer: 6 },
+  tsp_client:        { domain: 'system',       layer: 6 },
+  proto_recorder:    { domain: 'recorder',     layer: 6 },
+  camera_recorder:   { domain: 'recorder',     layer: 6 },
+  lidar_recorder:    { domain: 'recorder',     layer: 6 },
+};
+
+// CyberRT (mainboard) apps publish/subscribe channels from code, not transport.
+// Only the topics needed to resolve cross-process edges are listed here, and
+// these are code-derived (verified against the driver/app source), so they are
+// applied as a fallback that never overrides a real nexis transport publisher.
+const CODE_TOPICS = {
+  // dag_driver_gnss.dag — Novatel GNSS/IMU driver (raw sensor source).
+  driver_gnss: {
+    pub: [
+      '/sensor/novatel/Imu',
+      '/sensor/novatel/bestgnsspos',
+      '/sensor/novatel/bestgnssvel',
+      '/sensor/novatel/Heading',
+    ],
+    sub: [],
+  },
+  // dcl.dag — data collection / report.
+  dcl: { pub: ['/dcl/report'], sub: [] },
+};
+
+const GLOBAL_SERVICES = {
+  VehiclePoseManager: {
+    feedTopics: {
+      DR: {
+        topic: '/localization/100hz/localization_vehicle_speed',
+        proto: 'neodrive.global.localization_dr.LocalizationVehicleSpeed',
+      },
+      GNSS: {
+        topic: '/localization/100hz/inspvax_gnss_msf',
+        proto: 'neodrive.global.localization.LocalizationEstimate',
+      },
+      CAN: {
+        topic: '/canbus/vehicle_speed/Vehicle_speed',
+        proto: 'neodrive.global.canbus.PbCarStatus',
+      },
+    },
+  },
+};
 
 // ========================================================================
-// 1. Parse nexis transport.pbtxt
+// Transport / data parsing helpers
 // ========================================================================
 
 function extractNestedBlock(text, keyword) {
@@ -88,183 +168,6 @@ function parseDataFiles(dataDir) {
   return types;
 }
 
-// ========================================================================
-// 2. CyberRT process topic definitions (from DAG analysis + code knowledge)
-//    These processes use CyberRT channels defined in code, not nexis transport.
-// ========================================================================
-
-const CYBER_PROCESSES = {
-  location: {
-    domain: 'localization',
-    layer: 1,
-    pub: [
-      '/localization/100hz/localization_pose',
-      '/localization/100hz/localization_vehicle_speed',
-      '/localization/100hz/inspvax_gnss_msf',
-      '/localization/100hz/inspvax_gnss_msf_02',
-      '/localization/100hz/inspvax_gnss_msf_delta',
-    ],
-    sub: [
-      '/sensor/novatel/bestgnsspos',
-      '/sensor/novatel/bestgnssvel',
-      '/sensor/novatel/Heading',
-      '/sensor/novatel/Imu',
-      '/canbus/vehicle_speed/Vehicle_speed',
-    ],
-  },
-  planning: {
-    domain: 'pnc',
-    layer: 4,
-    pub: [
-      '/pnc/planning',
-      '/pnc/pnc_state',
-      '/planning/pilot_state',
-      '/planning/monitor',
-    ],
-    sub: [
-      '/neo_map_router/router_output',
-      '/localization/100hz/localization_pose',
-      '/planning/proxy/DuDriveChassis',
-      '/pnc/prediction',
-      '/state_machine/transition',
-    ],
-  },
-  control: {
-    domain: 'pnc',
-    layer: 5,
-    pub: [
-      '/pnc/control',
-      '/pnc/control_monitor',
-    ],
-    sub: [
-      '/pnc/planning',
-      '/localization/100hz/localization_pose',
-      '/planning/proxy/DuDriveChassis',
-    ],
-  },
-  aeb: {
-    domain: 'pnc',
-    layer: 5,
-    pub: ['/aeb/aeb_cmd'],
-    sub: [
-      '/localization/100hz/localization_pose',
-      '/planning/proxy/DuDriveChassis',
-    ],
-  },
-  perception: {
-    domain: 'perception',
-    layer: 3,
-    pub: [
-      '/pnc/prediction',
-      '/perception/environment_monitor',
-    ],
-    sub: [
-      '/perception/obj_infer',
-      '/perception/tld_infer',
-    ],
-  },
-  state_machine: {
-    domain: 'system',
-    layer: 1,
-    pub: ['/state_machine/transition'],
-    sub: [],
-  },
-  guardian_cyber: {
-    domain: 'system',
-    layer: 1,
-    pub: ['/patrol/discode', '/patrol/status'],
-    sub: [],
-  },
-  orin_ivi: {
-    domain: 'system',
-    layer: 2,
-    pub: [
-      '/maprouter/location',
-      '/maprouter/guideinfo',
-      '/maprouter/navirouteinfo',
-      '/maprouter/maps',
-    ],
-    sub: ['/localization/100hz/localization_vehicle_speed'],
-  },
-  openapi: {
-    domain: 'system',
-    layer: 1,
-    pub: [
-      '/openapi/auto_driver_status',
-      '/maprouter/routing_request',
-      '/maprouter/adjusted_navi_request_info',
-      '/openapi_ld/dispatch_request',
-    ],
-    sub: [
-      '/openapi_ld/pilot_state',
-      '/openapi_ld/zone_report',
-      '/openapi_ld/dispatch_result',
-      '/openapi_ld/extricate_request',
-      '/openapi_ld/notify',
-      '/openapi_ld/event',
-    ],
-  },
-  dynamic_layer: {
-    domain: 'pnc',
-    layer: 2,
-    pub: [
-      '/maprouter/dynamic_layer_on_path',
-      '/maprouter/dynamic_layer',
-      '/maprouter/dynamic_layer_query_request',
-      '/dynamiclayer/vehicle_area_status',
-      '/dynamiclayer/dynamic_layer_query_response',
-    ],
-    sub: [],
-  },
-  system_monitor: {
-    domain: 'system',
-    layer: 3,
-    pub: [
-      '/system/system_monitor',
-      '/nexis/security/alarm/alarm_state_data',
-      '/neolix/e2e/latency',
-    ],
-    sub: [],
-  },
-  dcl: {
-    domain: 'system',
-    layer: 6,
-    pub: ['/dcl/report'],
-    sub: [],
-  },
-  lidar_freespace: {
-    domain: 'perception',
-    layer: 2,
-    pub: ['/mapping/lidar_freespace_3d'],
-    sub: [],
-  },
-  mpu_monitor: { domain: 'system', layer: 6, pub: [], sub: [] },
-  tsp_client: { domain: 'system', layer: 6, pub: [], sub: [] },
-};
-
-// ========================================================================
-// 3. Nexis deploy → process name mapping + domain/layer
-// ========================================================================
-
-const NEXIS_META = {
-  neo_sensor:      { process: 'neo_sensor',    domain: 'sensor',       layer: 0 },
-  neo_camera:      { process: 'neo_camera',    domain: 'sensor',       layer: 0 },
-  neo_canbus:      { process: 'neo_canbus',    domain: 'sensor',       layer: 0 },
-  neo_lidar:       { process: 'neo_lidar',     domain: 'sensor',       layer: 0 },
-  model_infer:     { process: 'model_infer',   domain: 'perception',   layer: 2 },
-  x86_model_infer: { process: 'model_infer',   domain: 'perception',   layer: 2 },
-  localization:    { process: 'location',      domain: 'localization', layer: 1 },
-  map_router:      { process: 'map_router',    domain: 'maprouter',    layer: 3 },
-  default:         { process: 'default',       domain: 'system',       layer: 3 },
-  fault_manager:   { process: 'fault_manager', domain: 'system',       layer: 4 },
-};
-
-// ========================================================================
-// 4. Parse flow.d — executor scheduling (bundle definitions)
-// ========================================================================
-
-const NEXIS_FLOW = join(WORKSPACE, 'ad_dag/config/nexis/resource/flow.d');
-
 function parseFlowFiles(flowDir) {
   const executorFlows = {};
   if (!existsSync(flowDir)) return executorFlows;
@@ -321,16 +224,7 @@ function parseFlowFiles(flowDir) {
   return executorFlows;
 }
 
-// ========================================================================
-// 5. Parse task.d — executor task definitions (so, class, config)
-// ========================================================================
-
-const NEXIS_TASK = join(WORKSPACE, 'ad_dag/config/nexis/resource/task.d');
-
-// Base directories to search when resolving a relative cfg_file path. Order
-// matters: production deployment first, then source-tree mirrors so we catch
-// modules whose configs live next to their code. Add new bases here if a
-// module ships configs under a non-standard prefix.
+// Base directories to search when resolving a relative cfg_file path.
 const CFG_RESOLUTION_BASES = (() => {
   const bases = [
     '/home/caros/cyberrt',
@@ -340,9 +234,6 @@ const CFG_RESOLUTION_BASES = (() => {
     '/home/caros',
     WORKSPACE,
   ];
-  // Each first-level workspace subdirectory is also a valid base, since many
-  // modules carry their own conf/ and config/ trees that task.d entries
-  // reference with a `conf/...` or `config/...` relative path.
   if (existsSync(WORKSPACE)) {
     for (const entry of readdirSync(WORKSPACE)) {
       const candidate = join(WORKSPACE, entry);
@@ -358,12 +249,10 @@ const CFG_RESOLUTION_BASES = (() => {
   return bases;
 })();
 
-const cfgResolutionWarnings = [];
+let cfgResolutionWarnings = [];
 
 function resolveCfgFile(rawPath) {
   if (!rawPath) return rawPath;
-  // Already absolute and present? leave as-is. Absolute but missing? still
-  // leave it (don't silently rewrite a value the user explicitly authored).
   if (rawPath.startsWith('/')) {
     if (!existsSync(rawPath)) {
       cfgResolutionWarnings.push(`absolute cfg_file missing on disk: ${rawPath}`);
@@ -418,10 +307,6 @@ function parseTaskFiles(taskDir) {
   return executorTasks;
 }
 
-// ========================================================================
-// 6. Parse process executors — multi-executor per process + dependency chain
-// ========================================================================
-
 function parseProcessExecutors(taskDir, flowDir) {
   const processExecutors = {};
   const executorDependencies = {};
@@ -435,7 +320,6 @@ function parseProcessExecutors(taskDir, flowDir) {
       const processName = file.replace('.pbtxt', '');
       const content = readFileSync(join(flowDir, file), 'utf8');
 
-      // Parse node lines: "inputBundle << executorName >> output1 output2"
       const nodeMatches = [...content.matchAll(/node\s*:\s*"([^"]+)"/g)];
       for (const nm of nodeMatches) {
         const nodeLine = nm[1].trim();
@@ -448,7 +332,6 @@ function parseProcessExecutors(taskDir, flowDir) {
         flowNodeMap[taskName] = { bundleName, outputs, processName };
       }
 
-      // Parse bundle lines to get inputs for each bundle
       const bundleMatches = [...content.matchAll(/bundle\s*:\s*"([^"]+)"/g)];
       for (const bm of bundleMatches) {
         const bundleLine = bm[1].trim();
@@ -460,7 +343,6 @@ function parseProcessExecutors(taskDir, flowDir) {
           .map(m => m[1])
           .filter(Boolean);
 
-        // Attach inputs to the executor that uses this bundle
         for (const [taskName, info] of Object.entries(flowNodeMap)) {
           if (info.bundleName === bundleName) {
             info.inputs = inputs;
@@ -489,7 +371,6 @@ function parseProcessExecutors(taskDir, flowDir) {
       if (!classMatch || !libMatch) continue;
       const taskType = (typeMatch?.[1] || '').toLowerCase();
       const className = classMatch[1];
-      // Skip capture, emitter, emit types and known non-executor classes
       if (['capture', 'emitter', 'emit'].includes(taskType)) continue;
       if (['BusCapture', 'BusEmitter', 'AlarmCapture'].includes(className)) continue;
 
@@ -515,16 +396,11 @@ function parseProcessExecutors(taskDir, flowDir) {
   }
 
   // Step 3: Infer dependencies via transport.pbtxt topic bridging.
-  // Two data names in different executors may map to the same topic, creating
-  // a dependency that cannot be seen from data names alone.
-  const NEXIS_DEPLOY = join(WORKSPACE, 'ad_dag/config/nexis/deploy');
-
   for (const [processName, executors] of Object.entries(processExecutors)) {
-    const deps = []; // { from, to, topic, fromData, toData }
+    const deps = [];
 
-    // Build dataName -> topic mapping from transport.pbtxt
     const transportPath = join(NEXIS_DEPLOY, processName, 'transport.pbtxt');
-    const dataNameToTopic = {};   // dataName -> { topic, direction }
+    const dataNameToTopic = {};
     if (existsSync(transportPath)) {
       const content = readFileSync(transportPath, 'utf8');
       const blocks = [...content.matchAll(/transport\s*:\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g)];
@@ -542,8 +418,7 @@ function parseProcessExecutors(taskDir, flowDir) {
       }
     }
 
-    // Build output topic -> executor className mapping
-    const outputTopicToExec = {}; // topic -> { className, dataName }
+    const outputTopicToExec = {};
     for (const ex of executors) {
       for (const outData of ex.outputs) {
         const mapping = dataNameToTopic[outData];
@@ -553,8 +428,6 @@ function parseProcessExecutors(taskDir, flowDir) {
       }
     }
 
-    // Check each executor's inputs: if any input's topic matches an output topic
-    // from another executor in the same process, that's a dependency.
     for (const ex of executors) {
       for (const inpData of ex.inputs) {
         const mapping = dataNameToTopic[inpData];
@@ -575,7 +448,6 @@ function parseProcessExecutors(taskDir, flowDir) {
       }
     }
 
-    // Fallback: also check direct data name matches (for processes without transport)
     if (deps.length === 0) {
       const outputMap = {};
       for (const ex of executors) {
@@ -601,204 +473,169 @@ function parseProcessExecutors(taskDir, flowDir) {
 }
 
 // ========================================================================
-// Main
+// app_config helpers
 // ========================================================================
 
-console.log('Building comprehensive topology config...');
-
-const dataTypes = parseDataFiles(NEXIS_DATA);
-console.log(`  ${Object.keys(dataTypes).length} data type definitions`);
-
-// All processes: { processName: { domain, layer, pub: [{topic,proto}], sub: [{topic,proto}] } }
-const processes = {};
-const topicToPublisher = {};
-const topicToSubscribers = {};
-
-function addPub(proc, topic, proto, dataName, options = {}) {
-  // CyberRT definitions are a fallback for code-defined mainboard topics.
-  // They must not override an explicit Nexis transport publisher for the same
-  // topic, because transport reflects the selected Nexis deployment profile.
-  // The generic "default" profile is reused by multiple apps, so concrete
-  // code-derived publishers may still refine that placeholder ownership.
-  if (options.source === 'cyberFallback' && topicToPublisher[topic] && topicToPublisher[topic] !== 'default') {
-    return;
+/**
+ * Extract the enabled apps from a platform's app_config.json.
+ * @returns {Array<{ name, command, profile, runtime }>}
+ *   profile = the `-p` deploy dir (nexis_app) or null; runtime = 'nexis'|'cyber'|'other'.
+ */
+export function resolveApps(appConfig) {
+  const apps = [];
+  for (const app of appConfig.applications || []) {
+    if (app.enabled === false) continue;
+    const args = app.args || [];
+    const pIdx = args.indexOf('-p');
+    const profile = pIdx >= 0 ? args[pIdx + 1] : null;
+    let runtime;
+    if (app.command === 'nexis_app') {
+      runtime = 'nexis';
+    } else if (app.command === 'mainboard') {
+      runtime = 'cyber';
+    } else {
+      runtime = 'other';
+    }
+    apps.push({ name: app.name, command: app.command, profile, runtime });
   }
-  if (!processes[proc]) processes[proc] = { domain: 'system', layer: 5, runtime: 'unknown', pub: [], sub: [] };
-  const existing = processes[proc].pub.find(p => p.topic === topic);
-  if (!existing) {
-    processes[proc].pub.push({ topic, proto: proto || '', dataName: dataName || topic.split('/').pop() || topic });
-  } else if (dataName && !existing.dataName) {
-    existing.dataName = dataName;
-  }
-  topicToPublisher[topic] = proc;
+  return apps;
 }
 
-function addSub(proc, topic, proto, dataName) {
-  if (!processes[proc]) processes[proc] = { domain: 'system', layer: 5, runtime: 'unknown', pub: [], sub: [] };
-  const existing = processes[proc].sub.find(s => s.topic === topic);
-  if (!existing) {
-    processes[proc].sub.push({ topic, proto: proto || '', dataName: dataName || topic.split('/').pop() || topic });
-  } else if (dataName && !existing.dataName) {
-    existing.dataName = dataName;
-  }
-  if (!topicToSubscribers[topic]) topicToSubscribers[topic] = [];
-  if (!topicToSubscribers[topic].includes(proc)) topicToSubscribers[topic].push(proc);
-}
+// ========================================================================
+// Build a full topology config for one platform
+// ========================================================================
 
-// --- Nexis transport ---
-if (existsSync(NEXIS_DEPLOY)) {
-  for (const dir of readdirSync(NEXIS_DEPLOY)) {
-    const tPath = join(NEXIS_DEPLOY, dir, 'transport.pbtxt');
-    if (!existsSync(tPath)) continue;
-    const blocks = parseTransportFile(readFileSync(tPath, 'utf8'));
-    const meta = NEXIS_META[dir] || { process: dir, domain: 'system', layer: 5 };
-    const proc = meta.process;
-    if (!processes[proc]) processes[proc] = { domain: meta.domain, layer: meta.layer, runtime: 'nexis', pub: [], sub: [] };
+export function buildConfig(platform, { verbose = false } = {}) {
+  if (!PLATFORMS[platform]) {
+    throw new Error(`unknown platform '${platform}'. Known: ${Object.keys(PLATFORMS).join(', ')}`);
+  }
+  const appConfigPath = join(AD_DAG, PLATFORMS[platform]);
+  if (!existsSync(appConfigPath)) {
+    throw new Error(`app_config not found for platform ${platform}: ${appConfigPath}`);
+  }
+
+  cfgResolutionWarnings = [];
+  const log = (...a) => { if (verbose) console.log(...a); };
+
+  const dataTypes = parseDataFiles(NEXIS_DATA);
+  const processes = {};
+  const topicToPublisher = {};
+  const topicToSubscribers = {};
+
+  function ensureProc(proc, meta, runtime) {
+    if (!processes[proc]) {
+      processes[proc] = { domain: meta.domain, layer: meta.layer, runtime, pub: [], sub: [] };
+    }
     processes[proc].domain = meta.domain;
     processes[proc].layer = meta.layer;
-    processes[proc].runtime = 'nexis';
+    processes[proc].runtime = runtime;
+  }
 
-    for (const b of blocks) {
+  function addPub(proc, topic, proto, dataName, options = {}) {
+    // A code/fallback publisher must never override a real transport publisher.
+    if (options.source === 'codeFallback' && topicToPublisher[topic]) return;
+    if (!processes[proc]) processes[proc] = { domain: 'system', layer: 5, runtime: 'unknown', pub: [], sub: [] };
+    const existing = processes[proc].pub.find(p => p.topic === topic);
+    if (!existing) {
+      processes[proc].pub.push({ topic, proto: proto || '', dataName: dataName || topic.split('/').pop() || topic });
+    } else if (dataName && !existing.dataName) {
+      existing.dataName = dataName;
+    }
+    topicToPublisher[topic] = proc;
+  }
+
+  function addSub(proc, topic, proto, dataName) {
+    if (!processes[proc]) processes[proc] = { domain: 'system', layer: 5, runtime: 'unknown', pub: [], sub: [] };
+    const existing = processes[proc].sub.find(s => s.topic === topic);
+    if (!existing) {
+      processes[proc].sub.push({ topic, proto: proto || '', dataName: dataName || topic.split('/').pop() || topic });
+    } else if (dataName && !existing.dataName) {
+      existing.dataName = dataName;
+    }
+    if (!topicToSubscribers[topic]) topicToSubscribers[topic] = [];
+    if (!topicToSubscribers[topic].includes(proc)) topicToSubscribers[topic].push(proc);
+  }
+
+  const appConfig = JSON.parse(readFileSync(appConfigPath, 'utf8'));
+  const apps = resolveApps(appConfig);
+
+  // Pass 1: nexis apps — authoritative pub/sub from their `-p` transport.pbtxt.
+  for (const app of apps) {
+    if (app.runtime !== 'nexis' || !app.profile) continue;
+    const tPath = join(NEXIS_DEPLOY, app.profile, 'transport.pbtxt');
+    const meta = APP_META[app.name] || { domain: 'system', layer: 5 };
+    ensureProc(app.name, meta, 'nexis');
+    if (!existsSync(tPath)) {
+      cfgResolutionWarnings.push(`nexis app '${app.name}' profile '${app.profile}' has no transport.pbtxt`);
+      continue;
+    }
+    for (const b of parseTransportFile(readFileSync(tPath, 'utf8'))) {
       if (!b.topic) continue;
       const proto = dataTypes[b.name] || '';
-      if (b.direction === 'pub') addPub(proc, b.topic, proto, b.name);
-      else addSub(proc, b.topic, proto, b.name);
-    }
-  }
-}
-
-// --- CyberRT processes ---
-for (const [proc, info] of Object.entries(CYBER_PROCESSES)) {
-  if (!processes[proc]) processes[proc] = { domain: info.domain, layer: info.layer, runtime: 'cyber', pub: [], sub: [] };
-  processes[proc].domain = info.domain;
-  processes[proc].layer = info.layer;
-  processes[proc].runtime = 'cyber';
-  for (const topic of info.pub) addPub(proc, topic, '', undefined, { source: 'cyberFallback' });
-  for (const topic of info.sub) addSub(proc, topic, '');
-}
-
-// --- Summary ---
-const totalPub = Object.keys(topicToPublisher).length;
-const totalSub = Object.keys(topicToSubscribers).length;
-const totalProc = Object.keys(processes).length;
-
-console.log(`  ${totalProc} processes`);
-console.log(`  ${totalPub} publisher mappings`);
-console.log(`  ${totalSub} subscriber mappings`);
-
-for (const [name, p] of Object.entries(processes)) {
-  console.log(`  ${name}: ${p.pub.length} pub, ${p.sub.length} sub [${p.domain}]`);
-}
-
-// --- Parse flow definitions ---
-const executorFlows = parseFlowFiles(NEXIS_FLOW);
-console.log(`  ${Object.keys(executorFlows).length} executor flow definitions`);
-for (const [name, flow] of Object.entries(executorFlows)) {
-  console.log(`    ${name}: ${flow.hz}Hz, ${flow.requiredInputs.length} required, ${flow.optionalInputs.length} optional`);
-}
-
-// --- Parse task definitions ---
-const executorTasks = parseTaskFiles(NEXIS_TASK);
-console.log(`  ${Object.keys(executorTasks).length} executor task definitions`);
-for (const [cls, task] of Object.entries(executorTasks)) {
-  console.log(`    ${cls}: ${task.libName} cfg=[${task.cfgFiles.join(', ')}]`);
-}
-if (cfgResolutionWarnings.length > 0) {
-  console.log(`  ${cfgResolutionWarnings.length} cfg_file resolution warning(s):`);
-  for (const w of cfgResolutionWarnings) {
-    console.log(`    WARN: ${w}`);
-  }
-}
-
-// --- Parse process executors ---
-const { processExecutors, executorDependencies } = parseProcessExecutors(NEXIS_TASK, NEXIS_FLOW);
-console.log(`  ${Object.keys(processExecutors).length} processes with testable executors`);
-for (const [proc, execs] of Object.entries(processExecutors)) {
-  const deps = executorDependencies[proc] || [];
-  console.log(`    ${proc}: ${execs.map(e => e.className).join(', ')}${deps.length > 0 ? ` (${deps.length} deps)` : ''}`);
-}
-
-// --- Auto-alias: task.d names may differ from topology process names.
-// For each processExecutors key not in processes, try to find a matching
-// process by checking scene.pbtxt executor references or fuzzy name matching.
-const processNames = new Set(Object.keys(processes));
-const execKeysCopy = Object.keys(processExecutors).filter(k => !processNames.has(k));
-
-for (const taskKey of execKeysCopy) {
-  // Strategy 1: Check scene.pbtxt — if a deploy/<taskKey>/scene.pbtxt exists,
-  // its order lines reference executor names that appear in processExecutors[taskKey].
-  // The process name in the topology is whoever has those executors' pub/sub topics.
-  const execs = processExecutors[taskKey];
-  if (!execs || execs.length === 0) { continue; }
-
-  // Strategy 0: Known abbreviations (highest priority)
-  const KNOWN_ABBREVIATIONS = { 'lfc': 'lidar_freespace' };
-  let matched = null;
-  if (KNOWN_ABBREVIATIONS[taskKey] && processNames.has(KNOWN_ABBREVIATIONS[taskKey])) {
-    matched = KNOWN_ABBREVIATIONS[taskKey];
-  }
-
-  // Strategy 2: Find a process whose pub dataNames overlap with executor outputs.
-  if (!matched) {
-  for (const procName of processNames) {
-    // Check if the process sub/pub topics overlap with executor inputs/outputs
-    const proc = processes[procName];
-    if (!proc) { continue; }
-    const procSubTopics = new Set((proc.sub || []).map(s => s.topic));
-    // If any executor's input topic (resolved via transport) appears in process subs
-    for (const ex of execs) {
-      for (const outDataName of ex.outputs) {
-        const procPub = (proc.pub || []).find(p => p.dataName === outDataName);
-        if (procPub) { matched = procName; break; }
-      }
-      if (matched) { break; }
-    }
-    if (matched) { break; }
-  }
-  }
-
-  // Strategy 3: fuzzy name match
-  if (!matched) {
-    const kw = taskKey.replace(/_/g, '').toLowerCase();
-    for (const procName of processNames) {
-      const pkw = procName.replace(/_/g, '').toLowerCase();
-      if (kw.includes(pkw) || pkw.includes(kw) ||
-          kw.slice(0, 4) === pkw.slice(0, 4) ||
-          pkw.includes(kw.slice(0, 3))) {
-        matched = procName;
-        break;
-      }
+      if (b.direction === 'pub') addPub(app.name, b.topic, proto, b.name);
+      else addSub(app.name, b.topic, proto, b.name);
     }
   }
 
-  if (matched && !processExecutors[matched]) {
-    processExecutors[matched] = processExecutors[taskKey];
-    if (executorDependencies[taskKey]) {
-      executorDependencies[matched] = executorDependencies[taskKey];
-    }
-    console.log(`  alias: ${taskKey} -> ${matched}`);
+  // Pass 2: mainboard (CyberRT) apps — code-defined topics as a fallback only.
+  for (const app of apps) {
+    if (app.runtime !== 'cyber') continue;
+    const meta = APP_META[app.name] || { domain: 'system', layer: 5 };
+    ensureProc(app.name, meta, 'cyber');
+    const code = CODE_TOPICS[app.name];
+    if (!code) continue;
+    for (const topic of code.pub) addPub(app.name, topic, '', undefined, { source: 'codeFallback' });
+    for (const topic of code.sub) addSub(app.name, topic, '');
   }
+
+  log(`[${platform}] ${Object.keys(processes).length} processes, ` +
+      `${Object.keys(topicToPublisher).length} pub, ${Object.keys(topicToSubscribers).length} sub`);
+  for (const [name, p] of Object.entries(processes)) {
+    log(`  ${name}: ${p.pub.length} pub, ${p.sub.length} sub [${p.domain}/${p.runtime}]`);
+  }
+
+  const executorFlows = parseFlowFiles(NEXIS_FLOW);
+  const executorTasks = parseTaskFiles(NEXIS_TASK);
+  const { processExecutors, executorDependencies } = parseProcessExecutors(NEXIS_TASK, NEXIS_FLOW);
+
+  if (verbose && cfgResolutionWarnings.length > 0) {
+    log(`  ${cfgResolutionWarnings.length} warning(s):`);
+    for (const w of cfgResolutionWarnings) log(`    WARN: ${w}`);
+  }
+
+  return {
+    platform,
+    processes,
+    dataTypes,
+    topicToPublisher,
+    topicToSubscribers,
+    executorFlows,
+    executorTasks,
+    processExecutors,
+    executorDependencies,
+    globalServices: GLOBAL_SERVICES,
+  };
 }
 
-const globalServices = {
-  VehiclePoseManager: {
-    feedTopics: {
-      DR: {
-        topic: '/localization/100hz/localization_vehicle_speed',
-        proto: 'neodrive.global.localization_dr.LocalizationVehicleSpeed',
-      },
-      GNSS: {
-        topic: '/localization/100hz/inspvax_gnss_msf',
-        proto: 'neodrive.global.localization.LocalizationEstimate',
-      },
-      CAN: {
-        topic: '/canbus/vehicle_speed/Vehicle_speed',
-        proto: 'neodrive.global.canbus.PbCarStatus',
-      },
-    },
-  },
-};
+// ========================================================================
+// CLI: emit per-platform files + a default mirror for static imports
+// ========================================================================
 
-const config = { processes, dataTypes, topicToPublisher, topicToSubscribers, executorFlows, executorTasks, processExecutors, executorDependencies, globalServices };
-writeFileSync(OUTPUT, JSON.stringify(config, null, 2));
-console.log(`\nWritten to ${OUTPUT}`);
+function isMain() {
+  return process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+}
+
+if (isMain()) {
+  console.log('Building topology configs (app_config-driven)...');
+  for (const platform of Object.keys(PLATFORMS)) {
+    const cfg = buildConfig(platform, { verbose: true });
+    const out = join(SRC_DIR, `nexis-config.${platform}.json`);
+    writeFileSync(out, JSON.stringify(cfg, null, 2));
+    console.log(`Written ${out}`);
+  }
+  // Default mirror consumed by static `import './nexis-config.json'` sites.
+  const def = buildConfig(DEFAULT_PLATFORM);
+  const defOut = join(SRC_DIR, 'nexis-config.json');
+  writeFileSync(defOut, JSON.stringify(def, null, 2));
+  console.log(`Written ${defOut} (default platform: ${DEFAULT_PLATFORM})`);
+}

@@ -904,7 +904,10 @@ html, body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   overflow-y: auto;
-  max-height: 260px;
+  /* Resizable against the message panels via the selector splitter. A default
+     height keeps a predictable split; min-height guards the drag floor. */
+  height: 220px;
+  min-height: 80px;
 }
 .nd-sel-columns {
   display: flex;
@@ -1025,7 +1028,7 @@ html, body {
 .nd-panel {
   flex: 0 0 auto;
   width: 340px;
-  min-width: 280px;
+  min-width: 200px;
   display: flex;
   flex-direction: column;
   background: var(--surface);

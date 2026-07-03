@@ -174,8 +174,11 @@ ad-topology/
 │   ├── test-panel.js             # Replay Test 面板
 │   ├── mcap-loader.js            # MCAP 文件解析
 │   ├── topology-builder.js       # 拓扑构建（mcap + nexis 融合）
+│   ├── platform-config.js        # 运行时平台(25_6090/26_6012)配置切换
 │   ├── proto-decoder.js          # Protobuf 浏览器端解码
-│   ├── nexis-config.json         # 预构建的进程通信关系
+│   ├── nexis-config.json         # 默认平台(26_6012)进程通信关系（静态导入用）
+│   ├── nexis-config.25_6090.json # 25_6090 平台拓扑
+│   ├── nexis-config.26_6012.json # 26_6012 平台拓扑
 │   └── style.css                 # Uber Design System 风格样式
 ├── server/
 │   └── index.js                  # Node.js WS 服务 + URL 代理 + C++ harness 桥接
@@ -216,10 +219,22 @@ ad-topology/
 
 ## 配置更新
 
-当 nexis 框架配置变更时（transport.pbtxt 等）：
+拓扑配置由 **app_config 驱动**：`scripts/build-nexis-config.js` 按平台读取
+`ad_dag/conf/<platform>/app_config.json`，只纳入 `enabled` 的 app，按其
+`-p <profile>` 解析到对应 `deploy/<profile>/transport.pbtxt`，并以 app `name`
+作为拓扑节点名。这样 `25_*`/`26_*`/`test_*` 等版本化/仿真目录不会被混入。
+
+当 nexis 框架配置变更时（transport.pbtxt、app_config 等）重新生成：
 
 ```bash
-npm run prebuild
+npm run prebuild                       # 生成两套平台配置 + 默认 nexis-config.json(26_6012)
+DEFAULT_PLATFORM=25_6090 npm run prebuild   # 把默认镜像切到 25_6090
 ```
 
-当新增 CyberRT 进程时，需要在 `scripts/build-nexis-config.js` 的 `CYBER_PROCESSES` 中添加 topic 定义。
+生成物：`src/nexis-config.<platform>.json`（每平台一份）+ `src/nexis-config.json`
+（默认平台镜像，供静态 import 使用）。UI 顶栏的平台下拉可在 25_6090 / 26_6012
+间实时切换拓扑（见 `src/platform-config.js`）。
+
+新增 **mainboard(CyberRT)** 进程且其 topic 在代码中定义时，在
+`scripts/build-nexis-config.js` 的 `CODE_TOPICS` 中补充；nexis_app 进程则无需手动维护，
+直接来自其 transport.pbtxt。新增进程的 domain/layer 在 `APP_META` 中配置。

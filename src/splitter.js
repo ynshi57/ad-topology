@@ -20,7 +20,14 @@ export function createSplitter(panelA, panelB, opts = {}) {
   const el = document.createElement('div');
   el.className = `splitter ${isH ? 'splitter-h' : 'splitter-v'}`;
 
-  panelA.parentNode.insertBefore(el, opts.reverse ? panelA : panelB);
+  // Insertion reference:
+  // - reverse: panelA sits after the handle, so insert the handle before panelA.
+  // - panelB given: insert the handle before panelB (between A and B).
+  // - panelB omitted: the handle belongs to panelA alone, so insert it directly
+  //   after panelA (panelA.nextSibling), or append when panelA is last. This
+  //   lets each panel own a resize handle even with no flex sibling.
+  const insertRef = opts.reverse ? panelA : (panelB || panelA.nextSibling);
+  panelA.parentNode.insertBefore(el, insertRef);
 
   let startPos = 0;
   let startSize = 0;

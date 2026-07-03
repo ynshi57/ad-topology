@@ -101,6 +101,11 @@ export function createNodeDetail(container, opts) {
   const ndSelector = el.querySelector('#nd-selector');
   const miniTopoSplitter = createSplitter(miniTopo, ndSelector, { direction: 'vertical', min: 60, max: 600 });
 
+  // --- Resize Handle (selector | message panels) ---
+  // Lets the SUB/PUB selector region grow/shrink against the message area.
+  const ndPanels = el.querySelector('#nd-panels');
+  const selectorSplitter = createSplitter(ndSelector, ndPanels, { direction: 'vertical', min: 80, max: 700 });
+
   // --- Topic Selector (two-column: SUB | PUB, grouped by node) ---
   const subBody = el.querySelector('#nd-sel-sub-body');
   const pubBody = el.querySelector('#nd-sel-pub-body');
@@ -226,12 +231,26 @@ export function createNodeDetail(container, opts) {
     });
 
     panelContainer.appendChild(panel);
-    activePanels.set(topicInfo.topic, { el: panel, listEl, bodyEl, autoScroll: () => autoScroll });
+
+    // Give each message panel its own drag-to-resize handle on its right edge,
+    // so the user can widen/narrow individual "View Message" columns. The
+    // handle is inserted directly after the panel (no flex sibling needed).
+    const panelSplitter = createSplitter(panel, null, {
+      direction: 'horizontal', min: 220, max: 1100,
+    });
+
+    activePanels.set(topicInfo.topic, {
+      el: panel, listEl, bodyEl, splitter: panelSplitter, autoScroll: () => autoScroll,
+    });
   }
 
   function removePanel(topic) {
     const p = activePanels.get(topic);
-    if (p) { p.el.remove(); activePanels.delete(topic); }
+    if (p) {
+      if (p.splitter) { p.splitter.destroy(); }
+      p.el.remove();
+      activePanels.delete(topic);
+    }
   }
 
   /**
@@ -284,6 +303,11 @@ export function createNodeDetail(container, opts) {
   }
 
   function destroy() {
+    for (const [, p] of activePanels) {
+      if (p.splitter) { p.splitter.destroy(); }
+    }
+    activePanels.clear();
+    selectorSplitter.destroy();
     miniTopoSplitter.destroy();
     el.remove();
   }

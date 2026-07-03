@@ -84,15 +84,22 @@ MCAP 是自动驾驶领域的标准录制格式（由 Foxglove 开发），支�
 
 ### 3.6 Nexis 连接关系
 
-`nexis-config.json` 在构建时从以下配置文件自动生成：
+拓扑配置由**所选平台的 app_config 驱动**生成（`scripts/build-nexis-config.js`）。
+按 `ad_dag/conf/<platform>/app_config.json` 取 `enabled` 的 app，nexis_app 按
+`-p <profile>` 解析到 `deploy/<profile>/transport.pbtxt`，mainboard 进程用内置
+`CODE_TOPICS` 兜底；节点 id = app `name`。这样 `25_*`/`26_*`/`test_*` 版本化与仿真
+目录不会被混入，平台之间也不会互相污染。
 
 | 配置源 | 路径 | 内容 |
 |--------|------|------|
-| Transport 配置 | `ad_dag/config/nexis/deploy/*/transport.pbtxt` | Nexis 框架进程的 pub/sub topic 绑定 |
+| 启动清单 | `ad_dag/conf/<platform>/app_config.json` | 启用哪些 app、运行框架(nexis_app/mainboard)、`-p` 部署 profile |
+| Transport 配置 | `ad_dag/config/nexis/deploy/<profile>/transport.pbtxt` | Nexis 进程的 pub/sub topic 绑定（权威来源） |
 | Data 定义 | `ad_dag/config/nexis/resource/data.d/*.pbtxt` | 逻辑数据名 → protobuf 类型映射 |
-| CyberRT 进程 | `scripts/build-nexis-config.js` 内置 | mainboard 进程的 topic 归属（从 DAG + 代码分析得来）；仅作为 fallback，不覆盖明确的 Nexis transport 发布者 |
+| CyberRT 代码 topic | `scripts/build-nexis-config.js` 的 `CODE_TOPICS` | mainboard 进程在代码中定义的 topic，仅兜底，不覆盖 transport |
 
-当前覆盖 **23 个进程**、**59 个 publisher topic**、**37 个 subscriber 关系**。
+平台：`25_6090` 与 `26_6012`（仅 canbus / localization / model_infer 三处不同）。
+生成 `src/nexis-config.<platform>.json` 各一份，并镜像默认平台为 `src/nexis-config.json`。
+UI 顶栏平台下拉可实时切换。
 
 ### 3.7 可视化功能
 

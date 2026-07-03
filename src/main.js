@@ -14,6 +14,7 @@ import { initCameraDecoders, isCameraSchema } from './camera-decoder.js';
 import { createCameraPanel, buildCameraIndex } from './camera-panel.js';
 import { isCameraVideoTopic, isVideoStreamSchema } from './videostream-decoder.js';
 import { loadYoloSidecar } from './yolo-overlay.js';
+import { listPlatforms, getActivePlatform, setActivePlatform } from './platform-config.js';
 import { createLogPane } from './log-pane.js';
 import { loadVqaSidecar } from './vqa-overlay.js';
 
@@ -294,6 +295,7 @@ function showDropZone() {
         <p class="dz-sub">or click to browse. Double-click a node to see message details.</p>
         <input type="file" id="file-input" multiple accept=".mcap" style="display:none" />
         <button class="dz-btn" id="dz-browse">Select Files</button>
+        <a class="dz-btn" href="fault-explorer.html" target="_blank" style="text-decoration:none;display:inline-block;margin-left:8px">Fault Explorer</a>
         <div class="dz-url-wrap">
           <input class="dz-url-input" id="dz-url" placeholder="Paste viz.data.neolix.cn URL or mcap URL..." />
           <button class="dz-url-btn" id="dz-url-load">Load URL</button>
@@ -731,8 +733,12 @@ function showTopologyView() {
         <span class="tb-stat">${summary.channels.length} topics</span>
       </div>
       <div class="controls">
+        <select class="btn" id="cfg-platform" title="ad_dag platform profile">
+          ${listPlatforms().map(p => `<option value="${p}" ${p === getActivePlatform() ? 'selected' : ''}>${p}</option>`).join('')}
+        </select>
         <button class="btn ${show3D ? 'active' : ''}" id="btn-3d">3D</button>
         ${hasCameras ? `<button class="btn ${showCamera ? 'active' : ''}" id="btn-camera">Camera</button>` : ''}
+        <button class="btn" id="btn-faults">Faults</button>
         <button class="btn" id="btn-refresh-config">Refresh Config</button>
         <button class="btn" id="btn-reset">Reset</button>
         <button class="btn" id="btn-new">New File</button>
@@ -845,11 +851,20 @@ function showTopologyView() {
       setTimeout(() => { btn.textContent = 'Refresh Config'; btn.disabled = false; }, 2000);
     }
   });
+  document.getElementById('cfg-platform').addEventListener('change', (e) => {
+    setActivePlatform(e.target.value);
+    // Rebuild the topology from the same mcap channels under the new platform's
+    // pub/sub config, then re-render the topology view.
+    sharedTopology = buildTopologyFromChannels(sharedSummary.channels);
+    showTopologyView();
+  });
   document.getElementById('btn-reset').addEventListener('click', () => {
     currentGraph.resetView();
     if (current3DScene) current3DScene.resetCamera();
   });
   document.getElementById('btn-new').addEventListener('click', () => { cleanupAll(); showDropZone(); });
+  const btnFaults = document.getElementById('btn-faults');
+  if (btnFaults) btnFaults.addEventListener('click', () => { window.open('fault-explorer.html', '_blank'); });
 }
 
 function setup3DPanel() {

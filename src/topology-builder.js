@@ -6,7 +6,7 @@
  * - All data values (Hz, msgCount, schema) come from mcap
  */
 
-import nexisConfig from './nexis-config.json';
+import { getActiveConfig } from './platform-config.js';
 
 export const DOMAINS = {
   sensor:       { label: 'Sensor',       color: '#4db8c7' },
@@ -42,6 +42,8 @@ export function buildTopologyFromChannels(mcapChannels) {
   const mcapByTopic = {};
   dataChannels.forEach(ch => { mcapByTopic[ch.topic] = ch; });
 
+  // Read lazily so a runtime platform switch (25_6090 / 26_6012) is honoured.
+  const nexisConfig = getActiveConfig();
   const { processes, topicToPublisher, topicToSubscribers } = nexisConfig;
 
   // Step 1: assign each mcap channel to its publisher process

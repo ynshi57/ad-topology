@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "prebuild": "node scripts/build-nexis-config.js",
-    "test": "node scripts/test-build-nexis-config.js",
+    "sync-faults": "node scripts/sync-fault-table.js",
+    "test": "node scripts/test-build-nexis-config.js && node scripts/test-app-config-topology.js && node scripts/test-splitter.js",
     "dev": "npm run prebuild && vite",
     "server": "node server/index.js",
     "dev:full": "npm run prebuild && (node server/index.js &) && vite",

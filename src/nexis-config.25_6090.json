@@ -1,7 +1,7 @@
 {
-  "platform": "26_6012",
+  "platform": "25_6090",
   "processes": {
-    "udp_canbus": {
+    "canbus": {
       "domain": "sensor",
       "layer": 0,
       "runtime": "nexis",
@@ -91,14 +91,56 @@
       "runtime": "nexis",
       "pub": [
         {
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed",
+          "dataName": "loc_vehicle_speed"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
+          "proto": "neodrive.global.localization.LocalizationEstimate",
+          "dataName": "loc_msf_pose"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_02",
+          "proto": "neodrive.global.localization.LocalizationEstimate",
+          "dataName": "loc_msf_pose_02"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_delta",
+          "proto": "neodrive.global.localization.LocalizationEstimate",
+          "dataName": "loc_msf_pose_delta"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf_utm",
+          "proto": "neodrive.global.openapi.ld.PilotState",
+          "dataName": "loc_msf_pose_utm"
+        },
+        {
+          "topic": "/localization/ndt_pointcloud",
+          "proto": "neodrive.global.drivers.lidar.PointCloud",
+          "dataName": "loc_ndt_pointcloud"
+        },
+        {
+          "topic": "/nexis/security/alarm/alarm_state_data",
+          "proto": "nexis.security.alarm.AlarmStateDataList",
+          "dataName": "local_alarm_state"
+        }
+      ],
+      "sub": [
+        {
           "topic": "/sensor/novatel/Imu",
           "proto": "neodrive.global.drivers.gnss.Imu",
           "dataName": "loc_imu"
         },
         {
-          "topic": "/localization/100hz/localization_vehicle_speed",
-          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed",
-          "dataName": "loc_vehicle_speed"
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus",
+          "dataName": "loc_canbus"
+        },
+        {
+          "topic": "/pnc/control",
+          "proto": "neodrive.global.control.ControlCommand",
+          "dataName": "loc_control_cmd"
         },
         {
           "topic": "/sensor/novatel/bestgnsspos",
@@ -116,28 +158,6 @@
           "dataName": "loc_heading"
         },
         {
-          "topic": "https://api.vehicle.brood.neolix.cn/vehicleinfo/report_vehicle_info",
-          "proto": "",
-          "dataName": "rtkrep_out_report"
-        },
-        {
-          "topic": "/nexis/security/alarm/alarm_state_data",
-          "proto": "nexis.security.alarm.AlarmStateDataList",
-          "dataName": "local_alarm_state"
-        }
-      ],
-      "sub": [
-        {
-          "topic": "/canbus/vehicle_speed/Vehicle_speed",
-          "proto": "neodrive.global.canbus.PbCarStatus",
-          "dataName": "loc_canbus"
-        },
-        {
-          "topic": "/pnc/control",
-          "proto": "neodrive.global.control.ControlCommand",
-          "dataName": "loc_control_cmd"
-        },
-        {
           "topic": "/state_machine/transition",
           "proto": "neodrive.global.state_machine.GlobalStateMachine",
           "dataName": "loc_state_machine"
@@ -146,11 +166,6 @@
           "topic": "/perception/obj_infer",
           "proto": "neodrive.global.neo_perception.BevMap",
           "dataName": "loc_obj_detection"
-        },
-        {
-          "topic": "/localization/100hz/inspvax_gnss_msf",
-          "proto": "neodrive.global.localization.LocalizationEstimate",
-          "dataName": "loc_msf_pose"
         }
       ]
     },
@@ -453,6 +468,11 @@
       "runtime": "nexis",
       "pub": [
         {
+          "topic": "/perception/obj_infer",
+          "proto": "neodrive.global.neo_perception.BevMap",
+          "dataName": "obj_infer"
+        },
+        {
           "topic": "/perception/map_tr_infer",
           "proto": "neodrive.global.neo_perception.BevMap",
           "dataName": "maptr_infer"
@@ -483,11 +503,6 @@
           "dataName": "lane_seg_infer"
         },
         {
-          "topic": "/perception/obj_infer",
-          "proto": "neodrive.global.neo_perception.BevMap",
-          "dataName": "obj_infer"
-        },
-        {
           "topic": "/perception/bev_seg_infer",
           "proto": "neodrive.global.neo_perception.BevSegResult",
           "dataName": "bev_seg_infer"
@@ -508,47 +523,27 @@
           "dataName": "prediction"
         },
         {
-          "topic": "/nexis/security/alarm/alarm_state_data",
-          "proto": "nexis.security.alarm.AlarmStateDataList",
-          "dataName": "local_alarm_state"
-        },
-        {
           "topic": "/planning/e2e_result",
           "proto": "neodrive.global.planning.E2ePlanningResult",
           "dataName": "e2e_result"
+        }
+      ],
+      "sub": [
+        {
+          "topic": "/maprouter/navi_cache",
+          "proto": "neodrive.global.map_router.NaviCache",
+          "dataName": "navi_cache"
         },
         {
-          "topic": "/planning/e2e_monitor",
-          "proto": "neodrive.global.planning.E2eMonitor",
-          "dataName": "e2e_monitor"
+          "topic": "/neo_map_router/router_output",
+          "proto": "neodrive.global.map_router.MapRouter",
+          "dataName": "router_output"
         },
         {
           "topic": "/localization/100hz/inspvax_gnss_msf",
           "proto": "neodrive.global.localization.LocalizationEstimate",
           "dataName": "gnss_data"
         },
-        {
-          "topic": "/localization/100hz/inspvax_gnss_msf_02",
-          "proto": "neodrive.global.localization.LocalizationEstimate",
-          "dataName": "loc_msf_pose_02"
-        },
-        {
-          "topic": "/localization/100hz/inspvax_gnss_msf_delta",
-          "proto": "neodrive.global.localization.LocalizationEstimate",
-          "dataName": "loc_msf_pose_delta"
-        },
-        {
-          "topic": "/localization/100hz/inspvax_gnss_msf_utm",
-          "proto": "neodrive.global.openapi.ld.PilotState",
-          "dataName": "loc_msf_pose_utm"
-        },
-        {
-          "topic": "/localization/ndt_pointcloud",
-          "proto": "neodrive.global.drivers.lidar.PointCloud",
-          "dataName": "loc_ndt_pointcloud"
-        }
-      ],
-      "sub": [
         {
           "topic": "/canbus/vehicle_speed/Vehicle_speed",
           "proto": "neodrive.global.canbus.PbCarStatus",
@@ -566,48 +561,18 @@
         },
         {
           "topic": "/perception/occ_fusion_map",
-          "proto": "neodrive.global.neo_perception.OccFusion",
-          "dataName": "parking_occ_fusion"
-        },
-        {
-          "topic": "/neo_map_router/router_output",
-          "proto": "neodrive.global.map_router.MapRouter",
-          "dataName": "router_output"
+          "proto": "",
+          "dataName": "occ_fusion_map"
         },
         {
           "topic": "/maprouter/maps",
-          "proto": "neodrive.global.neo_map.NeoMaps",
-          "dataName": "maprouter_maps"
+          "proto": "",
+          "dataName": "neo_maps"
         },
         {
           "topic": "/maprouter/guideinfo",
-          "proto": "neodrive.map_engine.guide.NaviInfoPub",
-          "dataName": "maprouter_guideinfo"
-        },
-        {
-          "topic": "/state_machine/transition",
-          "proto": "neodrive.global.state_machine.GlobalStateMachine",
-          "dataName": "loc_state_machine"
-        },
-        {
-          "topic": "/sensor/novatel/Imu",
-          "proto": "neodrive.global.drivers.gnss.Imu",
-          "dataName": "loc_imu"
-        },
-        {
-          "topic": "/sensor/novatel/bestgnsspos",
-          "proto": "neodrive.global.drivers.gnss.BestPos",
-          "dataName": "loc_bestgnsspos"
-        },
-        {
-          "topic": "/sensor/novatel/bestgnssvel",
-          "proto": "neodrive.global.drivers.gnss.BestVel",
-          "dataName": "loc_bestgnssvel"
-        },
-        {
-          "topic": "/sensor/novatel/Heading",
-          "proto": "neodrive.global.drivers.gnss.Heading",
-          "dataName": "loc_heading"
+          "proto": "",
+          "dataName": "guideinfo"
         }
       ]
     },
@@ -1283,6 +1248,34 @@
         }
       ]
     },
+    "driver_gnss": {
+      "domain": "sensor",
+      "layer": 0,
+      "runtime": "cyber",
+      "pub": [
+        {
+          "topic": "/sensor/novatel/Imu",
+          "proto": "",
+          "dataName": "Imu"
+        },
+        {
+          "topic": "/sensor/novatel/bestgnsspos",
+          "proto": "",
+          "dataName": "bestgnsspos"
+        },
+        {
+          "topic": "/sensor/novatel/bestgnssvel",
+          "proto": "",
+          "dataName": "bestgnssvel"
+        },
+        {
+          "topic": "/sensor/novatel/Heading",
+          "proto": "",
+          "dataName": "Heading"
+        }
+      ],
+      "sub": []
+    },
     "tsp_client": {
       "domain": "system",
       "layer": 6,
@@ -1506,16 +1499,16 @@
     "x86_camera_front_narrow_0": "nexis.drivers.camera.ImageMeta"
   },
   "topicToPublisher": {
-    "/planning/proxy/DuDriveChassis": "udp_canbus",
-    "/canbus/vehicle_speed/Vehicle_speed": "udp_canbus",
-    "/canbus/timestamp": "udp_canbus",
+    "/planning/proxy/DuDriveChassis": "canbus",
+    "/canbus/vehicle_speed/Vehicle_speed": "canbus",
+    "/canbus/timestamp": "canbus",
     "/nexis/security/alarm/alarm_state_data": "system_monitor",
-    "/sensor/novatel/Imu": "location",
     "/localization/100hz/localization_vehicle_speed": "location",
-    "/sensor/novatel/bestgnsspos": "location",
-    "/sensor/novatel/bestgnssvel": "location",
-    "/sensor/novatel/Heading": "location",
-    "https://api.vehicle.brood.neolix.cn/vehicleinfo/report_vehicle_info": "location",
+    "/localization/100hz/inspvax_gnss_msf": "location",
+    "/localization/100hz/inspvax_gnss_msf_02": "location",
+    "/localization/100hz/inspvax_gnss_msf_delta": "location",
+    "/localization/100hz/inspvax_gnss_msf_utm": "location",
+    "/localization/ndt_pointcloud": "location",
     "/maprouter/dynamic_layer_query_request": "baidu_map_service",
     "/maprouter/adjusted_navi_request_info": "baidu_map_service",
     "/maprouter/dynamic_layer": "baidu_map_service",
@@ -1536,24 +1529,18 @@
     "/perception/occ_fusion_map": "maprouter",
     "/perception/rod_output": "maprouter",
     "/dcl/message_upstream": "maprouter",
+    "/perception/obj_infer": "model_infer",
     "/perception/map_tr_infer": "model_infer",
     "/perception/tld_infer": "model_infer",
     "/perception/occ_infer": "model_infer",
     "/perception/parking_occ_infer": "model_infer",
     "/perception/rod_infer": "model_infer",
     "/perception/lane_seg_infer": "model_infer",
-    "/perception/obj_infer": "model_infer",
     "/perception/bev_seg_infer": "model_infer",
     "/perception/bev_seg_infer_raw": "model_infer",
     "/mapping/lidar_freespace": "model_infer",
     "/pnc/prediction": "model_infer",
     "/planning/e2e_result": "model_infer",
-    "/planning/e2e_monitor": "model_infer",
-    "/localization/100hz/inspvax_gnss_msf": "model_infer",
-    "/localization/100hz/inspvax_gnss_msf_02": "model_infer",
-    "/localization/100hz/inspvax_gnss_msf_delta": "model_infer",
-    "/localization/100hz/inspvax_gnss_msf_utm": "model_infer",
-    "/localization/ndt_pointcloud": "model_infer",
     "/pnc/planning": "pnc",
     "/pnc/pnc_state": "pnc",
     "/planning/monitor": "pnc",
@@ -1590,54 +1577,62 @@
     "/openapi/data_upload": "openapi",
     "/openapi/strategy_request_result": "openapi",
     "/nexis/security/alarm/fault_process": "fault_manager",
+    "/sensor/novatel/Imu": "driver_gnss",
+    "/sensor/novatel/bestgnsspos": "driver_gnss",
+    "/sensor/novatel/bestgnssvel": "driver_gnss",
+    "/sensor/novatel/Heading": "driver_gnss",
     "/dcl/report": "dcl"
   },
   "topicToSubscribers": {
     "/aeb/aeb_cmd": [
-      "udp_canbus",
+      "canbus",
       "state_machine",
       "openapi"
     ],
     "/pnc/control": [
-      "udp_canbus",
+      "canbus",
       "location",
       "state_machine",
       "openapi"
     ],
     "/patrol/discode": [
-      "udp_canbus"
+      "canbus"
     ],
     "/localization/100hz/localization_pose": [
-      "udp_canbus",
+      "canbus",
       "openapi"
     ],
     "/canbus/horn_light_cmd": [
-      "udp_canbus"
+      "canbus"
     ],
     "/planning/pilot_state": [
-      "udp_canbus"
+      "canbus"
     ],
     "/openapi/auto_driver_status": [
-      "udp_canbus"
+      "canbus"
     ],
     "/vehicle/self/clean": [
-      "udp_canbus"
+      "canbus"
     ],
     "/perception/environment_monitor": [
-      "udp_canbus"
+      "canbus"
     ],
     "/state_machine/transition": [
-      "udp_canbus",
+      "canbus",
       "location",
       "baidu_map_service",
       "maprouter",
-      "model_infer",
       "pnc",
       "aeb"
     ],
     "/pnc/pnc_state": [
-      "udp_canbus",
+      "canbus",
       "state_machine"
+    ],
+    "/sensor/novatel/Imu": [
+      "location",
+      "aeb",
+      "openapi"
     ],
     "/canbus/vehicle_speed/Vehicle_speed": [
       "location",
@@ -1647,15 +1642,25 @@
       "pnc",
       "aeb"
     ],
+    "/sensor/novatel/bestgnsspos": [
+      "location"
+    ],
+    "/sensor/novatel/bestgnssvel": [
+      "location"
+    ],
+    "/sensor/novatel/Heading": [
+      "location",
+      "openapi"
+    ],
     "/perception/obj_infer": [
       "location",
       "maprouter",
       "aeb"
     ],
     "/localization/100hz/inspvax_gnss_msf": [
-      "location",
       "baidu_map_service",
       "maprouter",
+      "model_infer",
       "pnc",
       "aeb",
       "state_machine",
@@ -1759,25 +1764,13 @@
       "maprouter",
       "pnc"
     ],
+    "/maprouter/navi_cache": [
+      "model_infer"
+    ],
     "/neo_map_router/router_output": [
       "model_infer",
       "pnc",
       "state_machine"
-    ],
-    "/sensor/novatel/Imu": [
-      "model_infer",
-      "aeb",
-      "openapi"
-    ],
-    "/sensor/novatel/bestgnsspos": [
-      "model_infer"
-    ],
-    "/sensor/novatel/bestgnssvel": [
-      "model_infer"
-    ],
-    "/sensor/novatel/Heading": [
-      "model_infer",
-      "openapi"
     ],
     "/neo_map/maps": [
       "pnc"

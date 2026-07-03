@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fault Explorer — 故障根因 & SD接管建议</title>
+<script src="./fault-analysis.js"></script>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel2: #1c2230; --border: #2b323c;
+    --text: #e6edf3; --muted: #8b949e;
+    --none: #6b7280; --restart: #2f80ed; --relocate: #f2994a; --return: #eb5757;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 -apple-system, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+         background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+  #app { display: grid; grid-template-columns: 320px 1fr 340px; grid-template-rows: 48px 1fr;
+         grid-template-areas: "head head head" "list chain detail"; height: 100vh; }
+  header { grid-area: head; display: flex; align-items: center; gap: 16px; padding: 0 16px;
+           background: var(--panel); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  .legend { margin-left: auto; display: flex; gap: 12px; font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+  #list { grid-area: list; background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; }
+  #chain { grid-area: chain; overflow: auto; padding: 18px; }
+  #detail { grid-area: detail; background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; padding: 14px; }
+  .search { padding: 8px; position: sticky; top: 0; background: var(--panel); border-bottom: 1px solid var(--border); z-index: 2; }
+  .search input { width: 100%; padding: 6px 8px; background: var(--panel2); border: 1px solid var(--border);
+                  color: var(--text); border-radius: 6px; }
+  .search .hint { color: var(--muted); font-size: 10.5px; margin-top: 4px; }
+  .grp-title { padding: 9px 12px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+               color: var(--muted); position: sticky; top: 56px; background: var(--panel); }
+  .grp-title b { color: var(--text); }
+  .item { padding: 6px 12px 6px 14px; cursor: pointer; border-left: 3px solid transparent; display: flex; gap: 8px; align-items: flex-start; }
+  .item:hover { background: var(--panel2); }
+  .item.sel { background: var(--panel2); border-left-color: #58a6ff; }
+  .item .d { font-size: 12.5px; }
+  .item .c { color: var(--muted); font-size: 10.5px; font-family: ui-monospace, monospace; }
+  .item .flag { color: var(--return); font-size: 11px; }
+  h3 { margin: 4px 0 8px; font-size: 13px; }
+  .kv { margin: 7px 0; }
+  .kv .k { color: var(--muted); font-size: 11px; }
+  .card { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 8px 0; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 6px; color: #fff; font-weight: 600; font-size: 12px; }
+  .warn { color: var(--return); }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  /* chain */
+  .chain-grid { display: grid; grid-template-columns: 1fr 60px 1.1fr 60px 1fr; align-items: start; gap: 0; }
+  .chain-col h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 0 0 8px; }
+  .arrow { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 22px; padding-top: 40px; }
+  .fcard { background: var(--panel); border: 1px solid var(--border); border-left-width: 3px; border-radius: 7px;
+           padding: 8px 10px; margin-bottom: 8px; cursor: pointer; }
+  .fcard:hover { border-color: #58a6ff; }
+  .fcard .mod { color: var(--muted); font-size: 10.5px; }
+  .fcard .ds { font-size: 12.5px; }
+  .fcard .cd { color: var(--muted); font-size: 10px; font-family: ui-monospace, monospace; }
+  .fcard.cur { border-color: #58a6ff; background: var(--panel2); cursor: default; }
+  .nodecard { background: var(--panel2); border: 1px dashed var(--border); border-radius: 7px; padding: 10px; color: var(--muted); font-size: 12px; }
+  .selfnote { color: var(--muted); font-size: 12px; padding: 6px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Fault Explorer</h1>
+    <span class="meta" id="meta"></span>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--return)"></i>RETURN_SERVICE</span>
+      <span><i class="dot" style="background:var(--relocate)"></i>RELOCATE</span>
+      <span><i class="dot" style="background:var(--restart)"></i>RESTART</span>
+      <span><i class="dot" style="background:var(--none)"></i>NONE</span>
+    </div>
+  </header>
+  <div id="list">
+    <div class="search">
+      <input id="q" placeholder="搜索 模块 / 描述 / topic / 故障码(十进制或16进制)" />
+      <div class="hint">故障码支持 0x.. 16进制 或 纯十进制,自动互转匹配 ·
+        <a href="#" id="col-all" style="color:#58a6ff">全部折叠</a> /
+        <a href="#" id="exp-all" style="color:#58a6ff">全部展开</a></div>
+    </div>
+    <div id="items"></div>
+  </div>
+  <div id="chain"><div class="empty">← 选择一个故障,查看它的上游/下游故障链路</div></div>
+  <div id="detail"><div class="empty">← 选择一个故障</div></div>
+</div>
+<script type="module">
+const DATA = window.__FAULT_ANALYSIS__;
+const SD_RANK = { NONE: 0, RESTART: 1, RELOCATE: 2, RETURN_SERVICE: 3 };
+const MODULE_RANK = { can_bus: 0, localization: 1, model_infer: 1, map_route: 2, pnc: 3, parking: 3, control: 4, system_monitor: 5 };
+function getColor(sd) { return { NONE: '#6b7280', RESTART: '#2f80ed', RELOCATE: '#f2994a', RETURN_SERVICE: '#eb5757' }[sd] || '#6b7280'; }
+
+const faults = (DATA && DATA.faults) || [];
+const byCode = new Map(faults.map(f => [f.code, f]));
+const byModule = {};
+for (const f of faults) (byModule[f.module || '(unknown)'] = byModule[f.module || '(unknown)'] || []).push(f);
+
+let selected = null;
+const collapsed = new Set();   // 折叠的模块组
+
+if (DATA) document.getElementById('meta').textContent =
+  `${DATA.stats.total} 故障 · 同步自飞书 · ${new Date(DATA.generated_at).toLocaleString()}`;
+
+// ---------- 检索: 文本 + 故障码(十进制/16进制互转) ----------
+function matchFault(f, q) {
+  if (!q) return true;
+  const hay = `${f.module} ${f.desc} ${f.category} ${f.code} ${f.code_dec}`.toLowerCase();
+  if (hay.includes(q)) return true;
+  // 故障码互转匹配
+  try {
+    if (/^\d+$/.test(q)) {                       // 纯十进制 -> 转 hex 比 code
+      const hex = '0x' + BigInt(q).toString(16);
+      if ((f.code || '').toLowerCase().includes(hex)) return true;
+    } else if (/^0x[0-9a-f]+$/i.test(q)) {        // 16进制 -> 转十进制 比 code_dec
+      const dec = BigInt(q).toString();
+      if ((f.code_dec || '') === dec || (f.code_dec || '').includes(dec)) return true;
+    } else if (/^[0-9a-f]+$/i.test(q) && /[a-f]/i.test(q)) { // 裸 hex
+      if ((f.code || '').toLowerCase().includes(q)) return true;
+    }
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+// ---------- 左侧: 按模块分类 ----------
+function renderList(filter) {
+  const box = document.getElementById('items');
+  box.innerHTML = '';
+  const q = (filter || '').trim().toLowerCase();
+  const mods = Object.keys(byModule).sort((a, b) =>
+    ((MODULE_RANK[a] ?? 9) - (MODULE_RANK[b] ?? 9)) || a.localeCompare(b));
+  for (const m of mods) {
+    const grp = byModule[m].filter(f => matchFault(f, q));
+    if (!grp.length) continue;
+    const nonNone = grp.filter(f => f.sd.decision !== 'NONE').length;
+    const isCol = collapsed.has(m);
+    const title = document.createElement('div');
+    title.className = 'grp-title';
+    title.style.cursor = 'pointer';
+    title.innerHTML = `<span style="display:inline-block;width:12px">${isCol ? '▸' : '▾'}</span><b>${m}</b> · ${grp.length}${nonNone ? ` · <span style="color:#f2994a">${nonNone} 需接管</span>` : ''}`;
+    title.onclick = () => { if (collapsed.has(m)) collapsed.delete(m); else collapsed.add(m); renderList(document.getElementById('q').value); };
+    box.appendChild(title);
+    if (isCol) continue;
+    grp.sort((a, b) => (SD_RANK[b.sd.decision] - SD_RANK[a.sd.decision]) || a.desc.localeCompare(b.desc));
+    for (const f of grp) {
+      const d = document.createElement('div');
+      d.className = 'item' + (selected === f ? ' sel' : '');
+      const flag = f.sd.flags && f.sd.flags.length ? `<div class="flag">⚠</div>` : '';
+      d.innerHTML = `<i class="dot" style="background:${getColor(f.sd.decision)};margin-top:4px"></i>
+        <div><div class="d">${f.desc || '(无描述)'}${flag}</div>
+        <div class="c">${f.code} · ${f.code_dec}</div></div>`;
+      d.onclick = () => { selected = f; renderAll(); };
+      box.appendChild(d);
+    }
+  }
+  if (!box.children.length) box.innerHTML = '<div class="empty">无匹配</div>';
+}
+
+// ---------- 中间: 选中故障的上游/下游故障链路(精准到故障码, 仅来自真实 topic+pub/sub) ----------
+// 当前故障(explained 对象, sd 在 .sd.decision)
+function curCard(f) {
+  const div = document.createElement('div');
+  div.className = 'fcard cur';
+  div.style.borderLeftColor = getColor(f.sd.decision);
+  div.innerHTML = `<div class="mod">${f.module} · <span style="color:${getColor(f.sd.decision)}">${f.sd.decision}</span></div>
+    <div class="ds">${f.desc || '(无描述)'}</div><div class="cd">${f.code} · ${f.code_dec}</div>
+    ${f.topic ? `<div class="cd">topic: ${f.topic}</div>` : ''}`;
+  return div;
+}
+// 关联故障(flat: {code, topic, module, desc, sd_action})
+function relCard(u, dir) {
+  const div = document.createElement('div');
+  div.className = 'fcard';
+  div.style.borderLeftColor = getColor(u.sd_action);
+  div.innerHTML = `<div class="mod">${u.module} · <span style="color:${getColor(u.sd_action)}">${u.sd_action}</span></div>
+    <div class="ds">${u.desc || '(无描述)'}</div><div class="cd">${u.code}</div>
+    <div class="cd">${dir === 'up' ? '经' : '经'} topic: ${u.topic}${u.via ? ' (via ' + u.via + ')' : ''}</div>`;
+  div.onclick = () => { const t = byCode.get(u.code); if (t) { selected = t; renderAll(); } };
+  return div;
+}
+function renderChain() {
+  const box = document.getElementById('chain');
+  if (!selected) { box.innerHTML = '<div class="empty">← 选择一个故障,查看它的上游/下游故障链路</div>'; return; }
+  const f = selected;
+  box.innerHTML = '';
+  const grid = document.createElement('div'); grid.className = 'chain-grid';
+
+  const cUp = document.createElement('div'); cUp.className = 'chain-col';
+  cUp.innerHTML = `<h4>上游关联故障 (${f.upstream.length})</h4>`;
+  if (!f.upstream.length) {
+    cUp.innerHTML += `<div class="nodecard">${f.rootCause.text}</div>`;
+  } else {
+    f.upstream.forEach(u => cUp.appendChild(relCard(u, 'up')));
+  }
+
+  const cCur = document.createElement('div'); cCur.className = 'chain-col';
+  cCur.innerHTML = '<h4>当前故障</h4>';
+  cCur.appendChild(curCard(f));
+  if (f.topic) cCur.innerHTML += `<div class="selfnote">监控 topic:<br>${f.topic}<br>${f.producer ? '发布者: ' + f.producer : '发布者: 未在配置(传感器/驱动)'}</div>`;
+
+  const cDown = document.createElement('div'); cDown.className = 'chain-col';
+  cDown.innerHTML = `<h4>下游受影响故障 (${f.downstream.length})</h4>`;
+  if (!f.downstream.length) cDown.innerHTML += `<div class="nodecard">无下游故障(无进程订阅本 topic 或订阅方无登记故障)</div>`;
+  else f.downstream.forEach(u => cDown.appendChild(relCard(u, 'down')));
+
+  const a1 = document.createElement('div'); a1.className = 'arrow'; a1.textContent = '→';
+  const a2 = document.createElement('div'); a2.className = 'arrow'; a2.textContent = '→';
+  grid.append(cUp, a1, cCur, a2, cDown);
+  box.appendChild(grid);
+}
+
+// ---------- 右侧: 详情 ----------
+function renderDetail() {
+  const box = document.getElementById('detail');
+  if (!selected) { box.innerHTML = '<div class="empty">← 选择一个故障</div>'; return; }
+  const f = selected, rc = f.rootCause, sd = f.sd, color = getColor(sd.decision);
+  box.innerHTML = `
+    <h3>${f.module} :: ${f.desc || ''}</h3>
+    <div class="kv"><span class="pill" style="background:${color}">${sd.decision}</span>
+      <span class="k"> 车辆响应=${sd.vehicle_action}</span></div>
+    <div class="kv"><div class="k">故障码</div>${f.code} &nbsp;|&nbsp; ${f.code_dec}</div>
+    <div class="kv"><div class="k">类别</div>${f.category}</div>
+    <div class="kv"><div class="k">生成条件</div>${f.gen_condition || '—'}</div>
+    <div class="kv"><div class="k">恢复条件</div>${f.rec_condition || '—'}</div>
+    <div class="card"><div class="k">根因</div><div>${rc.text}</div>${rc.note ? `<div class="k">${rc.note}</div>` : ''}</div>
+    <div class="card">
+      <div class="k">SD 接管建议:为何是 ${sd.decision}</div>
+      <div class="kv"><div class="k">规则</div>${sd.rule}</div>
+      <div class="kv"><div class="k">理由</div>${sd.reason}</div>
+      ${sd.flags && sd.flags.length ? `<div class="warn">⚠ ${sd.flags.join('<br>⚠ ')}</div>` : ''}
+    </div>`;
+}
+
+function renderAll() { renderList(document.getElementById('q').value); renderChain(); renderDetail(); }
+document.getElementById('q').addEventListener('input', e => renderList(e.target.value));
+document.getElementById('col-all').addEventListener('click', (e) => {
+  e.preventDefault(); Object.keys(byModule).forEach(m => collapsed.add(m)); renderList(document.getElementById('q').value);
+});
+document.getElementById('exp-all').addEventListener('click', (e) => {
+  e.preventDefault(); collapsed.clear(); renderList(document.getElementById('q').value);
+});
+
+if (!DATA || !faults.length) {
+  document.body.innerHTML = '<div class="empty">未找到 fault-analysis.js,请先运行: node scripts/fault-analysis-report.js</div>';
+} else {
+  renderAll();
+}
+</script>
+</body>
+</html>
