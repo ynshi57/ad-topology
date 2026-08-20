@@ -5,7 +5,8 @@ import { createGraph } from './graph.js';
 import { createTimeline } from './timeline.js';
 import { createTopicPanel } from './topic-panel.js';
 import { createNodeDetail } from './node-detail.js';
-import { initDecoder, decodeMessage } from './proto-decoder.js';
+import { initDecoder, decodeMessage, decodeMessageStrings } from './proto-decoder.js';
+import { createFaultRcaView } from './fault-rca/fault-rca-view.js';
 import { createReplayTestView } from './test-panel.js';
 import { create3DScene } from './scene-3d.js';
 import { createSceneTopics } from './scene-topics.js';
@@ -14,7 +15,7 @@ import { initCameraDecoders, isCameraSchema } from './camera-decoder.js';
 import { createCameraPanel, buildCameraIndex } from './camera-panel.js';
 import { isCameraVideoTopic, isVideoStreamSchema } from './videostream-decoder.js';
 import { loadYoloSidecar } from './yolo-overlay.js';
-import { listPlatforms, getActivePlatform, setActivePlatform } from './platform-config.js';
+import { listPlatforms, getActivePlatform, setActivePlatform, getActiveConfig } from './platform-config.js';
 import { createLogPane } from './log-pane.js';
 import { loadVqaSidecar } from './vqa-overlay.js';
 
@@ -296,6 +297,7 @@ function showDropZone() {
         <input type="file" id="file-input" multiple accept=".mcap" style="display:none" />
         <button class="dz-btn" id="dz-browse">Select Files</button>
         <a class="dz-btn" href="fault-explorer.html" target="_blank" style="text-decoration:none;display:inline-block;margin-left:8px">Fault Explorer</a>
+        <a class="dz-btn" href="news.html" target="_blank" style="text-decoration:none;display:inline-block;margin-left:8px">AI News</a>
         <div class="dz-url-wrap">
           <input class="dz-url-input" id="dz-url" placeholder="Paste viz.data.neolix.cn URL or mcap URL..." />
           <button class="dz-url-btn" id="dz-url-load">Load URL</button>
@@ -567,6 +569,7 @@ function renderRecents(listEl, entries) {
         <div class="dz-recent-line1">
           <span class="dz-recent-stem">${escapeHtml(e.stem)}</span>
           <span class="dz-recent-meta">${formatBytes(totalSize)} · ${ago}</span>
+          <button class="dz-recent-del" data-idx="${i}" title="删除文件(含磁盘)">✕</button>
         </div>
         <div class="dz-recent-line2">
           ${variantChips}
@@ -579,6 +582,35 @@ function renderRecents(listEl, entries) {
     const idx = parseInt(el.dataset.idx, 10);
     el.addEventListener('click', () => loadCachedEntry(entries[idx]));
   });
+  listEl.querySelectorAll('.dz-recent-del').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      deleteCachedEntry(entries[parseInt(btn.dataset.idx, 10)]);
+    });
+  });
+}
+
+async function deleteCachedEntry(entry) {
+  if (!entry) { return; }
+  const names = entry.parts.map(p => p.basename).join('\n  ');
+  if (!confirm(`删除 ${entry.stem} 及其相关文件?\n将从磁盘永久删除:\n  ${names}\n(含 YOLO/VQA sidecar)\n此操作不可恢复。`)) {
+    return;
+  }
+  try {
+    const r = await fetch('http://localhost:8765/delete-mcap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stem: entry.stem }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) {
+      const detail = (j.errors && j.errors.length) ? j.errors.map(e => `${e.name}: ${e.error}`).join('; ') : (j.error || `HTTP ${r.status}`);
+      alert(`删除失败: ${detail}`);
+    }
+  } catch (err) {
+    alert(`删除失败(无法连接服务): ${err.message}`);
+  }
+  refreshRecents();
 }
 
 async function loadCachedEntry(entry) {
@@ -739,6 +771,7 @@ function showTopologyView() {
         <button class="btn ${show3D ? 'active' : ''}" id="btn-3d">3D</button>
         ${hasCameras ? `<button class="btn ${showCamera ? 'active' : ''}" id="btn-camera">Camera</button>` : ''}
         <button class="btn" id="btn-faults">Faults</button>
+        <button class="btn" id="btn-fault-rca">Fault RCA</button>
         <button class="btn" id="btn-refresh-config">Refresh Config</button>
         <button class="btn" id="btn-reset">Reset</button>
         <button class="btn" id="btn-new">New File</button>
@@ -865,6 +898,12 @@ function showTopologyView() {
   document.getElementById('btn-new').addEventListener('click', () => { cleanupAll(); showDropZone(); });
   const btnFaults = document.getElementById('btn-faults');
   if (btnFaults) btnFaults.addEventListener('click', () => { window.open('fault-explorer.html', '_blank'); });
+
+  const btnFaultRca = document.getElementById('btn-fault-rca');
+  if (btnFaultRca) btnFaultRca.addEventListener('click', () => {
+    if (!msgDataCache) { alert('消息索引仍在构建中，请稍候再试'); return; }
+    showFaultRcaView();
+  });
 }
 
 function setup3DPanel() {
@@ -1115,6 +1154,21 @@ function showDetailView(nodeId) {
         showReplayTestView(nodeId);
       });
     }
+    // fault_manager gets a contextual Fault RCA entry alongside Replay Test.
+    if (nodeId === 'fault_manager') {
+      const stats = document.querySelector('.nd-stats');
+      if (stats && !document.getElementById('nd-rca-btn')) {
+        const b = document.createElement('button');
+        b.className = 'nd-test-btn';
+        b.id = 'nd-rca-btn';
+        b.textContent = 'Fault RCA';
+        b.addEventListener('click', () => {
+          if (!msgDataCache) { alert('消息索引仍在构建中，请稍候再试'); return; }
+          showFaultRcaView();
+        });
+        stats.appendChild(b);
+      }
+    }
   }, 100);
 }
 
@@ -1128,6 +1182,39 @@ function backToTopology() {
 }
 
 let currentReplayTest = null;
+let currentFaultRca = null;
+
+// Decode with string longs so 64-bit fault codes keep full precision; cache on
+// the msgDataCache entry to avoid re-decoding.
+function decodeEntryStrings(entry) {
+  if (entry._decodedStr !== undefined) return entry._decodedStr;
+  entry._decodedStr = entry.schemaId ? decodeMessageStrings(entry.schemaId, entry.data) : null;
+  return entry._decodedStr;
+}
+
+function showFaultRcaView() {
+  currentView = 'fault-rca';
+  if (currentTimeline) { currentTimeline.pause(); currentTimeline.destroy(); currentTimeline = null; }
+  if (currentDetail) { currentDetail.destroy(); currentDetail = null; }
+  if (currentGraph) { currentGraph.destroy(); currentGraph = null; }
+  if (currentPanel) { currentPanel.destroy(); currentPanel = null; }
+  if (currentFaultRca) { currentFaultRca.destroy(); currentFaultRca = null; }
+  activeSplitters.forEach(s => s.destroy());
+  activeSplitters = [];
+
+  app.innerHTML = '';
+  currentFaultRca = createFaultRcaView(app, {
+    msgDataCache,
+    decode: decodeEntryStrings,
+    nexisConfig: getActiveConfig(),
+    durationSec: sharedSummary?.durationSec || 0,
+    platform: getActivePlatform(),
+    onBack() {
+      if (currentFaultRca) { currentFaultRca.destroy(); currentFaultRca = null; }
+      showTopologyView();
+    },
+  });
+}
 
 async function showReplayTestView(nodeId) {
   currentView = 'replay-test';
@@ -1304,6 +1391,7 @@ function cleanupAll() {
   if (current3DScene) { current3DScene.destroy(); current3DScene = null; }
   if (current3DTopics) { current3DTopics.destroy(); current3DTopics = null; }
   if (currentReplayTest) { currentReplayTest.destroy(); currentReplayTest = null; }
+  if (currentFaultRca) { currentFaultRca.destroy(); currentFaultRca = null; }
   if (currentCameraPanel) { currentCameraPanel.destroy(); currentCameraPanel = null; }
   sharedSummary = null; sharedTopology = null; sharedStartNs = null; sharedDesignHz = {};
   msgBucketIndex = null; msgTopicOffsets = null; msgTopicFirstSec = null; msgDataCache = null;

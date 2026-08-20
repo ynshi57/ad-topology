@@ -198,6 +198,22 @@ export function decodeMessage(schemaId, data) {
   }
 }
 
+// Like decodeMessage, but keeps 64-bit integers as decimal strings so large
+// fault codes (> 2^53) survive without precision loss.
+export function decodeMessageStrings(schemaId, data) {
+  const cached = schemaCache.get(schemaId);
+  if (!cached) return null;
+  try {
+    const input = data instanceof Uint8Array ? data : new Uint8Array(data);
+    const msg = cached.messageType.decode(input);
+    return cached.messageType.toObject(msg, {
+      longs: String, enums: String, bytes: String, defaults: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function decodeMessageByType(typeName, data) {
   const cached = [...schemaCache.values()].find(s => s.name === typeName);
   if (!cached) return null;

@@ -203,6 +203,10 @@ export function createNodeDetail(container, opts) {
       peerLabel = topicInfo.from ? `← ${topicInfo.from}` : '';
     }
 
+    // Combo layout: a single-frame full-detail pane on top (prominent timestamp
+    // + Δ from previous frame + frame #) and a compact, clickable timestamp log
+    // below. High-frequency streams stay scannable; clicking a row pins that
+    // frame in the detail pane, and "跟随最新" resumes tailing the latest frame.
     panel.innerHTML = `
       <div class="nd-panel-header">
         <span class="nd-panel-dir ${dirClass}">${topicInfo.direction}</span>
@@ -212,7 +216,19 @@ export function createNodeDetail(container, opts) {
         <button class="nd-panel-close" title="Close">x</button>
       </div>
       <div class="nd-panel-schema">${esc(topicInfo.schema || '')}</div>
-      <div class="nd-panel-body"><div class="nd-panel-list"></div></div>
+      <div class="nd-panel-body">
+        <div class="nd-detail">
+          <div class="nd-detail-head">
+            <span class="nd-detail-time">—</span>
+            <span class="nd-detail-delta"></span>
+            <span class="nd-detail-seq"></span>
+            <span class="nd-detail-size"></span>
+            <button class="nd-follow active" title="跟随最新帧">跟随最新</button>
+          </div>
+          <pre class="nd-detail-json"><span class="nd-detail-empty">等待数据…</span></pre>
+        </div>
+        <div class="nd-rows"></div>
+      </div>
     `;
 
     panel.querySelector('.nd-panel-close').addEventListener('click', () => {
@@ -222,25 +238,52 @@ export function createNodeDetail(container, opts) {
       removePanel(topicInfo.topic);
     });
 
-    const listEl = panel.querySelector('.nd-panel-list');
-    const bodyEl = panel.querySelector('.nd-panel-body');
-    let autoScroll = true;
+    const rowsEl = panel.querySelector('.nd-rows');
+    const timeEl = panel.querySelector('.nd-detail-time');
+    const deltaEl = panel.querySelector('.nd-detail-delta');
+    const seqEl = panel.querySelector('.nd-detail-seq');
+    const sizeEl = panel.querySelector('.nd-detail-size');
+    const jsonEl = panel.querySelector('.nd-detail-json');
+    const followBtn = panel.querySelector('.nd-follow');
 
-    bodyEl.addEventListener('scroll', () => {
-      autoScroll = bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 30;
+    const ctl = { frames: [], followLatest: true, seq: 0, selectedRow: null };
+
+    function renderDetail(frame, rowEl) {
+      timeEl.textContent = `[${frame.sec.toFixed(3)}s]`;
+      deltaEl.textContent = frame.deltaMs != null ? `Δ${frame.deltaMs.toFixed(1)}ms` : '';
+      seqEl.textContent = `#${frame.seq}`;
+      sizeEl.textContent = `${frame.dataSize}B`;
+      jsonEl.textContent = frame.decoded
+        ? JSON.stringify(frame.decoded, null, 2)
+        : `(binary ${frame.dataSize} bytes)`;
+      if (ctl.selectedRow) { ctl.selectedRow.classList.remove('active'); }
+      if (rowEl) { rowEl.classList.add('active'); ctl.selectedRow = rowEl; }
+    }
+    function updateFollowBtn() { followBtn.classList.toggle('active', ctl.followLatest); }
+    followBtn.addEventListener('click', () => {
+      ctl.followLatest = true;
+      updateFollowBtn();
+      const last = ctl.frames[ctl.frames.length - 1];
+      if (last) { renderDetail(last, rowsEl.lastElementChild); }
+      rowsEl.scrollTop = rowsEl.scrollHeight;
     });
+    function clear() {
+      ctl.frames = []; ctl.seq = 0; ctl.followLatest = true; ctl.selectedRow = null;
+      rowsEl.innerHTML = '';
+      timeEl.textContent = '—'; deltaEl.textContent = ''; seqEl.textContent = ''; sizeEl.textContent = '';
+      jsonEl.innerHTML = '<span class="nd-detail-empty">等待数据…</span>';
+      updateFollowBtn();
+    }
 
     panelContainer.appendChild(panel);
 
-    // Give each message panel its own drag-to-resize handle on its right edge,
-    // so the user can widen/narrow individual "View Message" columns. The
-    // handle is inserted directly after the panel (no flex sibling needed).
+    // Give each message panel its own drag-to-resize handle on its right edge.
     const panelSplitter = createSplitter(panel, null, {
       direction: 'horizontal', min: 220, max: 1100,
     });
 
     activePanels.set(topicInfo.topic, {
-      el: panel, listEl, bodyEl, splitter: panelSplitter, autoScroll: () => autoScroll,
+      el: panel, splitter: panelSplitter, ctl, rowsEl, renderDetail, updateFollowBtn, clear,
     });
   }
 
@@ -253,6 +296,8 @@ export function createNodeDetail(container, opts) {
     }
   }
 
+  const MAX_FRAMES = 300;
+
   /**
    * Push a decoded message to the appropriate panel.
    * @param {string} topic
@@ -263,38 +308,42 @@ export function createNodeDetail(container, opts) {
   function pushMessage(topic, timeSec, decoded, dataSize) {
     const p = activePanels.get(topic);
     if (!p) return;
+    const { ctl, rowsEl } = p;
 
-    const entry = document.createElement('div');
-    entry.className = 'nd-msg';
+    const prev = ctl.frames[ctl.frames.length - 1];
+    const frame = {
+      sec: timeSec, decoded, dataSize,
+      seq: ++ctl.seq,
+      deltaMs: prev ? (timeSec - prev.sec) * 1000 : null,
+    };
+    ctl.frames.push(frame);
 
-    let content;
-    if (decoded) {
-      content = JSON.stringify(decoded, null, 2);
-    } else {
-      content = `(binary ${dataSize} bytes)`;
+    const row = document.createElement('div');
+    row.className = 'nd-row';
+    const preview = decoded ? clipLine(JSON.stringify(decoded), 240) : `(binary ${dataSize} bytes)`;
+    row.innerHTML = `<span class="nd-row-time">${timeSec.toFixed(3)}s</span><span class="nd-row-preview">${escHtml(preview)}</span>`;
+    row.addEventListener('click', () => {
+      ctl.followLatest = false;
+      p.updateFollowBtn();
+      p.renderDetail(frame, row);
+    });
+    rowsEl.appendChild(row);
+
+    // Cap DOM + memory; drop oldest frame and its row together.
+    while (ctl.frames.length > MAX_FRAMES) {
+      ctl.frames.shift();
+      if (rowsEl.firstElementChild) { rowsEl.removeChild(rowsEl.firstElementChild); }
     }
 
-    entry.innerHTML = `<span class="nd-msg-time">[${timeSec.toFixed(3)}s]</span><pre class="nd-msg-json">${escHtml(content)}</pre>`;
-
-    // Click to expand/collapse JSON
-    const pre = entry.querySelector('.nd-msg-json');
-    pre.addEventListener('click', () => pre.classList.toggle('expanded'));
-
-    p.listEl.appendChild(entry);
-
-    // Keep max 50 messages per panel to limit DOM size
-    while (p.listEl.children.length > 50) {
-      p.listEl.removeChild(p.listEl.firstChild);
-    }
-
-    if (p.autoScroll()) {
-      p.bodyEl.scrollTop = p.bodyEl.scrollHeight;
+    if (ctl.followLatest) {
+      p.renderDetail(frame, row);
+      rowsEl.scrollTop = rowsEl.scrollHeight;
     }
   }
 
   function clearMessages() {
     for (const [, p] of activePanels) {
-      p.listEl.innerHTML = '';
+      if (p.clear) { p.clear(); }
     }
   }
 
@@ -414,6 +463,7 @@ function renderMiniTopo(container, opts) {
 
 function esc(s) { const d = document.createElement('span'); d.textContent = s; return d.innerHTML; }
 function escHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function clipLine(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 function shortTopic(t) {
   const parts = t.split('/').filter(Boolean);
   return parts.length > 2 ? '/' + parts.slice(-2).join('/') : t;

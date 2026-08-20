@@ -251,6 +251,14 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  // POST /delete-mcap { stem } -- delete all files in MCAP_DIR belonging to a
+  // recent-file entry (lite/camera/single mcaps + yolo/vqa/report sidecars).
+  // Strictly confined to MCAP_DIR; never touches other directories.
+  if (req.url === '/delete-mcap' && req.method === 'POST') {
+    await handleDeleteMcap(req, res);
+    return;
+  }
+
   // GET /server-log/stream -- Server-Sent Events stream of backend console
   // output. Used by the in-app Debug Log pane. History is replayed first
   // (up to LOG_BUF_MAX entries) so a late-connecting client still sees
@@ -349,8 +357,15 @@ const httpServer = createServer(async (req, res) => {
 
       const contentType = response.headers.get('content-type') || 'application/octet-stream';
       const contentLength = response.headers.get('content-length');
+      // When the upstream response was compressed (e.g. GitHub raw serves JSON
+      // with `content-encoding: gzip`), undici transparently decompresses the
+      // body but leaves the *compressed* Content-Length on the headers. Forwarding
+      // that stale length makes the client stop reading early and truncates the
+      // payload. Only forward Content-Length for non-encoded responses; otherwise
+      // let Node stream with chunked transfer-encoding.
+      const contentEncoding = response.headers.get('content-encoding');
       const headers = { 'Content-Type': contentType };
-      if (contentLength) { headers['Content-Length'] = contentLength; }
+      if (contentLength && !contentEncoding) { headers['Content-Length'] = contentLength; }
       res.writeHead(200, headers);
 
       // Stream the response body to both the HTTP response and (optionally)
@@ -703,6 +718,70 @@ function handleListMcaps(_req, res) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));
   }
+}
+
+// Delete every file in MCAP_DIR that belongs to a recent-file `stem`: the
+// lite/camera/single .mcap parts plus YOLO/VQA/report sidecars. Confined to
+// MCAP_DIR (no traversal, no other dirs).
+async function handleDeleteMcap(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (err) {
+    res.writeHead(err.status || 400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+
+  const stem = typeof payload.stem === 'string' ? payload.stem.trim() : '';
+  if (!stem || stem.includes('/') || stem.includes('\\') || stem.includes('..')) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'invalid stem' }));
+    return;
+  }
+
+  const isSidecar = (name) =>
+    name.startsWith(`${stem}.`) && (
+      name.endsWith('.yolo.json') ||
+      name.endsWith('.vqa.json') ||
+      name.endsWith('.vqa.report.json') ||
+      name.endsWith('.mcap.report.json')
+    );
+
+  let names;
+  try {
+    names = readdirSync(MCAP_DIR);
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `cannot read MCAP_DIR: ${err.message}` }));
+    return;
+  }
+
+  const targets = names.filter((name) => {
+    const info = classifyMcapBasename(name);
+    return (info && info.stem === stem) || isSidecar(name);
+  });
+
+  const base = pathResolve(MCAP_DIR);
+  const deleted = [];
+  const errors = [];
+  for (const name of targets) {
+    const resolved = pathResolve(MCAP_DIR, name);
+    if (dirname(resolved) !== base) {
+      errors.push({ name, error: 'path escaped MCAP_DIR' });
+      continue;
+    }
+    try {
+      unlinkSync(resolved);
+      deleted.push(name);
+    } catch (err) {
+      errors.push({ name, error: err.message });
+    }
+  }
+
+  console.log(`[delete-mcap] stem=${stem} deleted=${deleted.length} errors=${errors.length}`);
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: errors.length === 0, stem, deleted, errors }));
 }
 
 // ---------------------------------------------------------------------------

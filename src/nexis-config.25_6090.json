@@ -175,11 +175,6 @@
       "runtime": "nexis",
       "pub": [
         {
-          "topic": "/maprouter/dynamic_layer_query_request",
-          "proto": "neodrive.global.DynamicLayer.DynamicLayerQueryRequest",
-          "dataName": "maprouter_dynamic_layer_query_request"
-        },
-        {
           "topic": "/maprouter/adjusted_navi_request_info",
           "proto": "neodrive.global.neo_map.NaviRequestInfo",
           "dataName": "maprouter_adjusted_navi_request_info"
@@ -233,6 +228,11 @@
           "topic": "/dcl/file_upload_req",
           "proto": "neodrive.global.dcl.FileUploadRequest",
           "dataName": "dcl_file_upload_request"
+        },
+        {
+          "topic": "/dcl/message_upstream",
+          "proto": "neodrive.global.dcl.DclMessageUpstream",
+          "dataName": "dcl_message_upstream"
         }
       ],
       "sub": [
@@ -255,11 +255,6 @@
           "topic": "/planning/proxy/DuDriveChassis",
           "proto": "neodrive.global.status.Chassis",
           "dataName": "canbus_pub_chassis"
-        },
-        {
-          "topic": "/dynamiclayer/dynamic_layer_query_response",
-          "proto": "neodrive.global.DynamicLayer.DynamicLayerQueryResponse",
-          "dataName": "dynamic_layer_query_response"
         },
         {
           "topic": "/state_machine/transition",
@@ -775,6 +770,11 @@
           "dataName": "fsm_zone_report"
         },
         {
+          "topic": "/openapi_ld/1hz/ad_display_msg",
+          "proto": "neodrive.global.openapi.ld.AdDisplayMessage",
+          "dataName": "fsm_ad_display_msg"
+        },
+        {
           "topic": "/state_machine/transition",
           "proto": "neodrive.global.state_machine.GlobalStateMachine",
           "dataName": "fsm_transition"
@@ -820,11 +820,6 @@
           "topic": "/aeb/aeb_cmd",
           "proto": "neodrive.global.planning.AebCmd",
           "dataName": "fsm_aeb_cmd"
-        },
-        {
-          "topic": "/dynamiclayer/vehicle_area_status",
-          "proto": "neodrive.global.DynamicLayer.VehicleAreaStatus",
-          "dataName": "fsm_vehicle_area_status"
         },
         {
           "topic": "/maprouter/dynamic_layer_on_path",
@@ -908,37 +903,72 @@
         }
       ]
     },
-    "dynamic_layer": {
-      "domain": "pnc",
-      "layer": 2,
+    "e2e_planner": {
+      "domain": "system",
+      "layer": 5,
       "runtime": "nexis",
       "pub": [
         {
-          "topic": "/dynamiclayer/dynamic_layer_query_response",
-          "proto": "neodrive.global.DynamicLayer.DynamicLayerQueryResponse",
-          "dataName": "dynamic_layer_query_response"
+          "topic": "/planning/e2e_result",
+          "proto": "neodrive.global.planning.E2ePlanningResult",
+          "dataName": "e2e_result"
         },
         {
-          "topic": "/dynamiclayer/vehicle_area_status",
-          "proto": "neodrive.global.DynamicLayer.VehicleAreaStatus",
-          "dataName": "dynamic_layer_vehicle_area_status"
+          "topic": "/planning/e2e_monitor",
+          "proto": "neodrive.global.planning.E2eMonitor",
+          "dataName": "e2e_monitor"
         }
       ],
       "sub": [
         {
-          "topic": "/localization/100hz/inspvax_gnss_msf_02",
+          "topic": "/pnc/prediction",
+          "proto": "",
+          "dataName": "model_infer_prediction_obstacles"
+        },
+        {
+          "topic": "/perception/occ_infer",
+          "proto": "",
+          "dataName": "e2e_occ_infer"
+        },
+        {
+          "topic": "/perception/occ_fusion_map",
+          "proto": "",
+          "dataName": "occ_fusion_map"
+        },
+        {
+          "topic": "/neo_map_router/router_output",
+          "proto": "neodrive.global.map_router.MapRouter",
+          "dataName": "router_output"
+        },
+        {
+          "topic": "/maprouter/maps",
+          "proto": "",
+          "dataName": "neo_maps"
+        },
+        {
+          "topic": "/maprouter/guideinfo",
+          "proto": "",
+          "dataName": "guideinfo"
+        },
+        {
+          "topic": "/localization/100hz/inspvax_gnss_msf",
           "proto": "neodrive.global.localization.LocalizationEstimate",
-          "dataName": "localization_estimate"
+          "dataName": "gnss_data"
         },
         {
-          "topic": "/router/dynamic_layer",
-          "proto": "neodrive.global.DynamicLayer.DynamicLayerInfo",
-          "dataName": "dynamic_layer_info_raw"
+          "topic": "/canbus/vehicle_speed/Vehicle_speed",
+          "proto": "neodrive.global.canbus.PbCarStatus",
+          "dataName": "canbus_pub_wheel_speed"
         },
         {
-          "topic": "/maprouter/dynamic_layer_query_request",
-          "proto": "neodrive.global.DynamicLayer.DynamicLayerQueryRequest",
-          "dataName": "maprouter_dynamic_layer_query_request"
+          "topic": "/localization/100hz/localization_vehicle_speed",
+          "proto": "neodrive.global.localization_dr.LocalizationVehicleSpeed",
+          "dataName": "map_router_odom"
+        },
+        {
+          "topic": "/planning/proxy/DuDriveChassis",
+          "proto": "neodrive.global.status.Chassis",
+          "dataName": "canbus_pub_chassis"
         }
       ]
     },
@@ -1205,6 +1235,11 @@
           "dataName": "oapi_in_zone_report"
         },
         {
+          "topic": "/openapi_ld/1hz/ad_display_msg",
+          "proto": "",
+          "dataName": "oapi_in_ad_display_msg"
+        },
+        {
           "topic": "/openapi_ld/extricate_request",
           "proto": "",
           "dataName": "oapi_in_extricate_req"
@@ -1403,11 +1438,8 @@
     "e2e_monitor": "neodrive.global.planning.E2eMonitor",
     "localization_estimate": "neodrive.global.localization.LocalizationEstimate",
     "localization_vehicle_speed": "neodrive.global.localization_dr.LocalizationVehicleSpeed",
-    "dynamic_layer_query_response": "neodrive.global.DynamicLayer.DynamicLayerQueryResponse",
     "global_state_machine": "neodrive.global.state_machine.GlobalStateMachine",
     "dynamic_layer_info_raw": "neodrive.global.DynamicLayer.DynamicLayerInfo",
-    "maprouter_dynamic_layer_query_request": "neodrive.global.DynamicLayer.DynamicLayerQueryRequest",
-    "dynamic_layer_vehicle_area_status": "neodrive.global.DynamicLayer.VehicleAreaStatus",
     "maprouter_adjusted_navi_request_info": "neodrive.global.neo_map.NaviRequestInfo",
     "maprouter_dynamic_layer_info": "neodrive.global.DynamicLayer.DynamicLayerInfo",
     "maprouter_operation_areas_on_path": "neodrive.global.neo_map.OperationAreasOnPath",
@@ -1419,6 +1451,7 @@
     "maprouter_dynamic_layers_on_path": "neodrive.global.DynamicLayer.DynamicLayersOnPath",
     "maprouter_routing_request": "neodrive.global.openapild.routing.OpenApiRoutingRequest",
     "dcl_file_upload_request": "neodrive.global.dcl.FileUploadRequest",
+    "dcl_message_upstream": "neodrive.global.dcl.DclMessageUpstream",
     "planning_neo_maps": "neodrive.global.neo_map.NeoMaps",
     "planning_e2e_result": "neodrive.global.planning.E2ePlanningResult",
     "planning_output": "neodrive.global.planning.ADCTrajectory",
@@ -1431,7 +1464,6 @@
     "fsm_collision_request": "neodrive.global.dcl.DclReport",
     "fsm_router_output": "neodrive.global.map_router.MapRouter",
     "fsm_aeb_cmd": "neodrive.global.planning.AebCmd",
-    "fsm_vehicle_area_status": "neodrive.global.DynamicLayer.VehicleAreaStatus",
     "fsm_dynamic_layers_on_path": "neodrive.global.DynamicLayer.DynamicLayersOnPath",
     "fsm_operation_areas_on_path": "neodrive.global.neo_map.OperationAreasOnPath",
     "fsm_driving_trajectory": "neodrive.map_engine.location.GpsLocationChangePub",
@@ -1454,6 +1486,7 @@
     "fsm_dispatch_result": "neodrive.global.openapi.ld.OpenApiDispatchResult",
     "fsm_event_info": "neodrive.global.openapi.ld.EventInfo",
     "fsm_zone_report": "neodrive.global.openapi.ld.ZoneReport",
+    "fsm_ad_display_msg": "neodrive.global.openapi.ld.AdDisplayMessage",
     "fsm_transition": "neodrive.global.state_machine.GlobalStateMachine",
     "fsm_transition_debug": "neodrive.global.state_machine.TransitionDebugInfo",
     "fsm_ivisdk_message_out": "neodrive.global.openapi.ld.IVISDKMessage",
@@ -1509,7 +1542,6 @@
     "/localization/100hz/inspvax_gnss_msf_delta": "location",
     "/localization/100hz/inspvax_gnss_msf_utm": "location",
     "/localization/ndt_pointcloud": "location",
-    "/maprouter/dynamic_layer_query_request": "baidu_map_service",
     "/maprouter/adjusted_navi_request_info": "baidu_map_service",
     "/maprouter/dynamic_layer": "baidu_map_service",
     "/maprouter/operation_area_on_path": "baidu_map_service",
@@ -1521,6 +1553,7 @@
     "/maprouter/dynamic_layer_on_path": "baidu_map_service",
     "/maprouter/routing_request": "baidu_map_service",
     "/dcl/file_upload_req": "maprouter",
+    "/dcl/message_upstream": "maprouter",
     "/perception/static": "maprouter",
     "/neo_map_router/router_output": "maprouter",
     "/neo_tld_post_v2/output": "maprouter",
@@ -1528,7 +1561,6 @@
     "/maprouter/navi_cache": "maprouter",
     "/perception/occ_fusion_map": "maprouter",
     "/perception/rod_output": "maprouter",
-    "/dcl/message_upstream": "maprouter",
     "/perception/obj_infer": "model_infer",
     "/perception/map_tr_infer": "model_infer",
     "/perception/tld_infer": "model_infer",
@@ -1540,7 +1572,7 @@
     "/perception/bev_seg_infer_raw": "model_infer",
     "/mapping/lidar_freespace": "model_infer",
     "/pnc/prediction": "model_infer",
-    "/planning/e2e_result": "model_infer",
+    "/planning/e2e_result": "e2e_planner",
     "/pnc/planning": "pnc",
     "/pnc/pnc_state": "pnc",
     "/planning/monitor": "pnc",
@@ -1556,11 +1588,11 @@
     "/openapi/dispatch_result": "state_machine",
     "/openapi_ld/event": "state_machine",
     "/openapi_ld/zone_report": "state_machine",
+    "/openapi_ld/1hz/ad_display_msg": "state_machine",
     "/state_machine/transition": "state_machine",
     "/state_machine/transition_debug": "state_machine",
     "/openapi_ld/ivisdk_message": "state_machine",
-    "/dynamiclayer/dynamic_layer_query_response": "dynamic_layer",
-    "/dynamiclayer/vehicle_area_status": "dynamic_layer",
+    "/planning/e2e_monitor": "e2e_planner",
     "/router/request": "openapi",
     "/router/dynamic_layer": "openapi",
     "/openapi_ld/vlm_response": "openapi",
@@ -1640,7 +1672,8 @@
       "maprouter",
       "model_infer",
       "pnc",
-      "aeb"
+      "aeb",
+      "e2e_planner"
     ],
     "/sensor/novatel/bestgnsspos": [
       "location"
@@ -1664,6 +1697,7 @@
       "pnc",
       "aeb",
       "state_machine",
+      "e2e_planner",
       "openapi"
     ],
     "/localization/100hz/localization_vehicle_speed": [
@@ -1671,7 +1705,8 @@
       "maprouter",
       "model_infer",
       "pnc",
-      "aeb"
+      "aeb",
+      "e2e_planner"
     ],
     "/planning/proxy/DuDriveChassis": [
       "baidu_map_service",
@@ -1680,14 +1715,11 @@
       "pnc",
       "aeb",
       "state_machine",
+      "e2e_planner",
       "openapi"
     ],
-    "/dynamiclayer/dynamic_layer_query_response": [
-      "baidu_map_service"
-    ],
     "/router/dynamic_layer": [
-      "baidu_map_service",
-      "dynamic_layer"
+      "baidu_map_service"
     ],
     "/perception/tld_infer": [
       "maprouter"
@@ -1696,7 +1728,8 @@
       "maprouter"
     ],
     "/perception/occ_infer": [
-      "maprouter"
+      "maprouter",
+      "e2e_planner"
     ],
     "/perception/lane_seg_infer": [
       "maprouter"
@@ -1707,7 +1740,8 @@
     "/pnc/prediction": [
       "maprouter",
       "pnc",
-      "aeb"
+      "aeb",
+      "e2e_planner"
     ],
     "/perception/rod_infer": [
       "maprouter"
@@ -1725,7 +1759,8 @@
     ],
     "/maprouter/guideinfo": [
       "maprouter",
-      "model_infer"
+      "model_infer",
+      "e2e_planner"
     ],
     "/maprouter/navirouteinfo": [
       "maprouter",
@@ -1733,7 +1768,8 @@
     ],
     "/maprouter/maps": [
       "maprouter",
-      "model_infer"
+      "model_infer",
+      "e2e_planner"
     ],
     "/maprouter/dynamic_layer_on_path": [
       "maprouter",
@@ -1751,7 +1787,8 @@
     "/perception/occ_fusion_map": [
       "maprouter",
       "model_infer",
-      "pnc"
+      "pnc",
+      "e2e_planner"
     ],
     "/planning/monitor": [
       "maprouter"
@@ -1770,7 +1807,8 @@
     "/neo_map_router/router_output": [
       "model_infer",
       "pnc",
-      "state_machine"
+      "state_machine",
+      "e2e_planner"
     ],
     "/neo_map/maps": [
       "pnc"
@@ -1785,9 +1823,6 @@
       "state_machine"
     ],
     "/dcl/report": [
-      "state_machine"
-    ],
-    "/dynamiclayer/vehicle_area_status": [
       "state_machine"
     ],
     "/openapi_ld/vehicle_clean_request": [
@@ -1809,11 +1844,7 @@
       "state_machine"
     ],
     "/localization/100hz/inspvax_gnss_msf_02": [
-      "state_machine",
-      "dynamic_layer"
-    ],
-    "/maprouter/dynamic_layer_query_request": [
-      "dynamic_layer"
+      "state_machine"
     ],
     "/pnc/abnormal_stay_report": [
       "openapi"
@@ -1893,6 +1924,9 @@
     "/openapi_ld/zone_report": [
       "openapi"
     ],
+    "/openapi_ld/1hz/ad_display_msg": [
+      "openapi"
+    ],
     "/openapi_ld/extricate_request": [
       "openapi"
     ],
@@ -1958,7 +1992,6 @@
       ],
       "optionalInputs": [
         "gnss_data",
-        "dynamic_layer_query_response",
         "global_state_machine",
         "dynamic_layer_info_raw"
       ]
@@ -1994,18 +2027,6 @@
         "gnss_data",
         "canbus_pub_wheel_speed",
         "fsm_transition"
-      ]
-    },
-    "dynamic_layer_service": {
-      "intervalUs": 200000,
-      "hz": 5,
-      "queueSize": 5,
-      "requiredInputs": [
-        "localization_estimate"
-      ],
-      "optionalInputs": [
-        "dynamic_layer_info_raw",
-        "maprouter_dynamic_layer_query_request"
       ]
     },
     "lfc_executor": {
@@ -2091,19 +2112,7 @@
       "queueSize": 5,
       "requiredInputs": [
         "top_lidar",
-        "front_lidar",
-        "x86_camera_front_narrow_0",
-        "x86_camera_front_wide_1",
-        "x86_camera_front_60_2",
-        "x86_camera_rear_3",
-        "x86_camera_rear_left_4",
-        "x86_camera_front_left_5",
-        "x86_camera_rear_right_6",
-        "x86_camera_front_right_7",
-        "x86_camera_svc_right_8",
-        "x86_camera_svc_left_9",
-        "x86_camera_svc_front_10",
-        "x86_camera_svc_rear_11"
+        "front_lidar"
       ],
       "optionalInputs": []
     },
@@ -2236,14 +2245,14 @@
       "hz": 5,
       "queueSize": 5,
       "requiredInputs": [
-        "prediction"
+        "model_infer_prediction_obstacles"
       ],
       "optionalInputs": [
-        "occ_infer",
-        "parking_occ_fusion",
+        "e2e_occ_infer",
+        "occ_fusion_map",
         "router_output",
-        "maprouter_maps",
-        "maprouter_guideinfo"
+        "neo_maps",
+        "guideinfo"
       ]
     },
     "25_one_model_infer": {
@@ -2252,18 +2261,7 @@
       "queueSize": 5,
       "requiredInputs": [
         "top_lidar",
-        "front_lidar",
-        "camera_front_narrow_0",
-        "camera_front_wide_1",
-        "camera_rear_3",
-        "camera_rear_left_4",
-        "camera_front_left_5",
-        "camera_rear_right_6",
-        "camera_front_right_7",
-        "camera_svc_right_8",
-        "camera_svc_left_9",
-        "camera_svc_front_10",
-        "camera_svc_rear_11"
+        "front_lidar"
       ],
       "optionalInputs": [
         "navi_cache",
@@ -2281,6 +2279,15 @@
       "optionalInputs": [
         "side_lidar_rear"
       ]
+    },
+    "26_online_calibration_wheel": {
+      "intervalUs": 10000,
+      "hz": 100,
+      "queueSize": 5,
+      "requiredInputs": [
+        "canbus_pub_wheel_speed"
+      ],
+      "optionalInputs": []
     },
     "after_sale_calibration": {
       "intervalUs": 200000,
@@ -2345,7 +2352,15 @@
         "camera_svc_right_8",
         "camera_svc_left_9",
         "camera_svc_front_10",
-        "camera_svc_rear_11",
+        "camera_svc_rear_11"
+      ],
+      "optionalInputs": []
+    },
+    "25_online_calibration_wheel": {
+      "intervalUs": 10000,
+      "hz": 100,
+      "queueSize": 5,
+      "requiredInputs": [
         "canbus_pub_wheel_speed"
       ],
       "optionalInputs": []
@@ -2392,7 +2407,8 @@
         "oapi_in_dispatch_result",
         "oapi_in_zone_report",
         "oapi_in_extricate_req",
-        "oapi_in_notify"
+        "oapi_in_notify",
+        "oapi_in_ad_display_msg"
       ]
     },
     "planning_executor": {
@@ -2423,7 +2439,6 @@
         "fsm_collision_request",
         "fsm_router_output",
         "fsm_aeb_cmd",
-        "fsm_vehicle_area_status",
         "fsm_dynamic_layers_on_path",
         "fsm_operation_areas_on_path",
         "fsm_driving_trajectory",
@@ -2448,19 +2463,7 @@
       "queueSize": 5,
       "requiredInputs": [
         "top_lidar",
-        "front_lidar",
-        "x86_camera_front_narrow_0",
-        "x86_camera_front_wide_1",
-        "x86_camera_front_60_2",
-        "x86_camera_rear_3",
-        "x86_camera_rear_left_4",
-        "x86_camera_front_left_5",
-        "x86_camera_rear_right_6",
-        "x86_camera_front_right_7",
-        "x86_camera_svc_right_8",
-        "x86_camera_svc_left_9",
-        "x86_camera_svc_front_10",
-        "x86_camera_svc_rear_11"
+        "front_lidar"
       ],
       "optionalInputs": []
     },
@@ -2470,18 +2473,7 @@
       "queueSize": 5,
       "requiredInputs": [
         "top_lidar",
-        "front_lidar",
-        "x86_camera_front_narrow_0",
-        "x86_camera_front_wide_1",
-        "x86_camera_rear_3",
-        "x86_camera_rear_left_4",
-        "x86_camera_front_left_5",
-        "x86_camera_rear_right_6",
-        "x86_camera_front_right_7",
-        "x86_camera_svc_right_8",
-        "x86_camera_svc_left_9",
-        "x86_camera_svc_front_10",
-        "x86_camera_svc_rear_11"
+        "front_lidar"
       ],
       "optionalInputs": []
     }
@@ -2544,12 +2536,6 @@
         "./conf/control_X6S.pb.txt"
       ],
       "sourceFile": "control_task.pbtxt"
-    },
-    "DynamicLayerExecutor": {
-      "taskName": "dynamic_layer_service",
-      "libName": "libdynamic_layer_executor.so",
-      "cfgFiles": [],
-      "sourceFile": "dynamic_layer.pbtxt"
     },
     "LfcNexisExecutor": {
       "taskName": "lfc_executor",
@@ -2649,10 +2635,10 @@
       "sourceFile": "model_infer.pbtxt"
     },
     "OnlineCalibNexisExecutor": {
-      "taskName": "25_online_calibration",
+      "taskName": "26_online_calibration_wheel",
       "libName": "libonline_calibration.so",
       "cfgFiles": [
-        "/home/caros/cyberrt/conf/online_calibration_config/online_calib_nexis_executor.yaml"
+        "/home/caros/cyberrt/conf/online_calibration_config/online_calib_wheel_executor.yaml"
       ],
       "sourceFile": "online_calibration.pbtxt"
     },
@@ -2784,7 +2770,6 @@
         "inputs": [
           "map_router_odom",
           "gnss_data",
-          "dynamic_layer_query_response",
           "global_state_machine",
           "dynamic_layer_info_raw"
         ],
@@ -2799,8 +2784,8 @@
           "maprouter_maps",
           "maprouter_dynamic_layers_on_path",
           "maprouter_routing_request",
-          "maprouter_dynamic_layer_query_request",
-          "dcl_file_upload_request"
+          "dcl_file_upload_request",
+          "dcl_message_upstream"
         ]
       }
     ],
@@ -2882,23 +2867,6 @@
         "outputs": [
           "control_command",
           "control_monitor"
-        ]
-      }
-    ],
-    "dynamic_layer": [
-      {
-        "taskName": "dynamic_layer_service",
-        "className": "DynamicLayerExecutor",
-        "libName": "libdynamic_layer_executor.so",
-        "cfgFiles": [],
-        "inputs": [
-          "localization_estimate",
-          "dynamic_layer_info_raw",
-          "maprouter_dynamic_layer_query_request"
-        ],
-        "outputs": [
-          "dynamic_layer_query_response",
-          "dynamic_layer_vehicle_area_status"
         ]
       }
     ],
@@ -3313,6 +3281,9 @@
           "camera_front_wide_1",
           "d",
           "v",
+          "camera_front_60_2",
+          "d",
+          "v",
           "camera_rear_3",
           "d",
           "v",
@@ -3393,15 +3364,15 @@
           "/home/caros/cyberrt/conf/planning_executor_conf.yml"
         ],
         "inputs": [
-          "prediction",
+          "model_infer_prediction_obstacles",
           "d",
-          "occ_infer",
+          "e2e_occ_infer",
           "v",
-          "parking_occ_fusion",
+          "occ_fusion_map",
           "v",
           "router_output",
-          "maprouter_maps",
-          "maprouter_guideinfo"
+          "neo_maps",
+          "guideinfo"
         ],
         "outputs": [
           "e2e_result",
@@ -3458,9 +3429,6 @@
           "d",
           "v",
           "camera_svc_rear_11",
-          "d",
-          "v",
-          "canbus_pub_wheel_speed",
           "d",
           "v"
         ],
@@ -3701,10 +3669,33 @@
           "v",
           "camera_svc_rear_11",
           "d",
-          "v",
-          "canbus_pub_wheel_speed",
-          "d",
           "v"
+        ],
+        "outputs": []
+      },
+      {
+        "taskName": "25_online_calibration_wheel",
+        "className": "OnlineCalibNexisExecutor",
+        "libName": "libonline_calibration.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/online_calibration_config/online_calib_wheel_executor.yaml"
+        ],
+        "inputs": [
+          "canbus_pub_wheel_speed",
+          "d"
+        ],
+        "outputs": []
+      },
+      {
+        "taskName": "26_online_calibration_wheel",
+        "className": "OnlineCalibNexisExecutor",
+        "libName": "libonline_calibration.so",
+        "cfgFiles": [
+          "/home/caros/cyberrt/conf/online_calibration_config/online_calib_wheel_executor.yaml"
+        ],
+        "inputs": [
+          "canbus_pub_wheel_speed",
+          "d"
         ],
         "outputs": []
       }
@@ -3752,7 +3743,8 @@
           "oapi_in_dispatch_result",
           "oapi_in_zone_report",
           "oapi_in_extricate_req",
-          "oapi_in_notify"
+          "oapi_in_notify",
+          "oapi_in_ad_display_msg"
         ],
         "outputs": [
           "oapi_out_routing_req",
@@ -3829,7 +3821,6 @@
           "fsm_collision_request",
           "fsm_router_output",
           "fsm_aeb_cmd",
-          "fsm_vehicle_area_status",
           "fsm_dynamic_layers_on_path",
           "fsm_operation_areas_on_path",
           "fsm_driving_trajectory",
@@ -3854,6 +3845,7 @@
           "fsm_dispatch_result",
           "fsm_event_info",
           "fsm_zone_report",
+          "fsm_ad_display_msg",
           "fsm_transition",
           "fsm_transition_debug",
           "fsm_ivisdk_message_out"
@@ -3938,6 +3930,9 @@
           "d",
           "v",
           "x86_camera_front_wide_1",
+          "d",
+          "v",
+          "x86_camera_front_60_2",
           "d",
           "v",
           "x86_camera_rear_3",
@@ -4080,20 +4075,6 @@
         "topic": "",
         "fromData": "obj_infer",
         "toData": "obj_infer"
-      },
-      {
-        "from": "PredictionNexisExecutor",
-        "to": "PlanningNexisExecutor",
-        "topic": "",
-        "fromData": "prediction",
-        "toData": "prediction"
-      },
-      {
-        "from": "OneModelNexisExecutor",
-        "to": "PlanningNexisExecutor",
-        "topic": "",
-        "fromData": "occ_infer",
-        "toData": "occ_infer"
       }
     ]
   },

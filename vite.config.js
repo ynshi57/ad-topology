@@ -13,6 +13,15 @@
  * also work in the localhost case.
  */
 export default {
+  build: {
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        news: 'news.html',
+        fault: 'fault-explorer.html',
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,
